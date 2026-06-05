@@ -1,5 +1,7 @@
 # 股情报 (stockwhisper)
 
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 A股小道消息情报社区。用户提交机构/个人推荐消息，AI 自动评分、分级、摘要，并回测历史表现。gamified 声誉体系 + 解锁经济门控高价值内容。
 
 > ⚠️ **免责声明**：本项目仅供开源学习与技术交流，所有内容**不构成任何投资建议**，**不得用于商业用途**。投资有风险，入市需谨慎。
@@ -17,6 +19,10 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8289
 ```
 
 访问 http://localhost:8289
+
+## 在线社区
+
+🌐 **https://stockwhisper.doujie.ccwu.cc/**
 
 ## 数据源（均可选，缺失时自动降级）
 
