@@ -151,9 +151,7 @@ async function openRumor(id) {
   alert(msg);
 }
 
-function strip(html) {
-  return html.replace(/<[^>]*>/g, "");
-}
+function strip(html) { return html.replace(/<[^>]*>/g, ""); }
 
 async function unlockRumor(id) {
   try {
@@ -167,8 +165,7 @@ async function unlockRumor(id) {
 
 async function submitRumor(event) {
   event.preventDefault();
-  const form = new FormData(event.target);
-  const payload = Object.fromEntries(form.entries());
+  const payload = Object.fromEntries(new FormData(event.target).entries());
   const result = $("#submitResult");
   try {
     const data = await api("/api/rumors", { method: "POST", body: JSON.stringify(payload) });
@@ -213,14 +210,9 @@ async function loadBacktests() {
   const data = await api("/api/backtests");
   $("#backtestRows").innerHTML = data.items.map((r) => `
     <tr>
-      <td>${r.target}</td>
-      <td>${r.ai_tier}${r.ai_score}</td>
-      <td>${r.code || "-"}</td>
-      <td>${pct(r.ret_5)}</td>
-      <td>${pct(r.ret_20)}</td>
-      <td>${pct(r.ret_60)}</td>
-      <td>${pct(r.max_ret_60)}</td>
-      <td>${r.status || "pending"}</td>
+      <td>${r.target}</td><td>${r.ai_tier}${r.ai_score}</td><td>${r.code || "-"}</td>
+      <td>${pct(r.ret_5)}</td><td>${pct(r.ret_20)}</td><td>${pct(r.ret_60)}</td>
+      <td>${pct(r.max_ret_60)}</td><td>${r.status || "pending"}</td>
     </tr>
   `).join("");
 }
@@ -230,10 +222,7 @@ async function loadLeaderboard() {
   $("#leaderboard").innerHTML = data.items.map((u, i) => `
     <div class="rank-row">
       <strong>#${i + 1}</strong>
-      <div>
-        <strong>${u.display_name}</strong>
-        <p>${u.level}</p>
-      </div>
+      <div><strong>${u.display_name}</strong><p>${u.level}</p></div>
       <span>${u.xp} XP</span>
       <span>${Number(u.reputation).toFixed(1)} 分</span>
       <span>${u.direct_quota} 额度</span>
@@ -241,77 +230,73 @@ async function loadLeaderboard() {
   `).join("");
 }
 
+// ── 登录/注册弹窗 ──────────────────────────────────────────
 let regEmail = "";
 
 function setRegMode(step) {
-  // step: "login" | "reg1" | "reg2"
   const isLogin = step === "login";
-  const isReg1 = step === "reg1";
-  const isReg2 = step === "reg2";
+  const isReg   = step === "reg";
   $("#authTitle").textContent = isLogin ? "登录" : "注册";
-  $("#authFields").style.display = isLogin || isReg2 ? "" : "none";
-  $("#regStep1").style.display = isReg1 || isReg2 ? "" : "none";
-  $("#regStep2").style.display = isReg2 ? "" : "none";
-  $("#loginBtn").style.display = isLogin ? "" : "none";
-  $("#registerBtn").style.display = isLogin ? "" : "none";
-  $("#doRegisterBtn").style.display = isReg2 ? "" : "none";
-  $("#regBackBtn").style.display = isReg1 || isReg2 ? "" : "none";
+  $("#loginForm").style.display    = isLogin ? "" : "none";
+  $("#regForm").style.display      = isReg   ? "" : "none";
+  $("#loginBtn").style.display     = isLogin ? "" : "none";
+  $("#toRegBtn").style.display     = isLogin ? "" : "none";
+  $("#doRegisterBtn").style.display = isReg  ? "" : "none";
+  $("#regBackBtn").style.display   = isReg   ? "" : "none";
   $("#authMsg").textContent = "";
+}
+
+function toggleEye(targetId) {
+  const input = $(`#${targetId}`);
+  input.type = input.type === "password" ? "text" : "password";
 }
 
 async function auth(mode) {
   const payload = { username: $("#authUser").value.trim(), password: $("#authPass").value };
   try {
     const data = await api(`/api/${mode}`, { method: "POST", body: JSON.stringify(payload) });
-    state.user = data.user;
-    state.level = data.level;
-    $("#authDialog").close();
-    $("#authMsg").textContent = "";
-    setRegMode("login");
-    renderProfile();
-    loadRumors();
-  } catch (err) {
-    $("#authMsg").textContent = err.message;
-  }
+    state.user = data.user; state.level = data.level;
+    $("#authDialog").close(); setRegMode("login");
+    renderProfile(); loadRumors();
+  } catch (err) { $("#authMsg").textContent = err.message; }
 }
 
 async function sendCode() {
   const email = $("#regEmail").value.trim();
   if (!email) { $("#authMsg").textContent = "请填写邮箱"; return; }
   const btn = $("#sendCodeBtn");
-  btn.disabled = true;
+  btn.disabled = true; btn.textContent = "发送中…";
   try {
     await api("/api/send-code", { method: "POST", body: JSON.stringify({ email }) });
     regEmail = email;
-    setRegMode("reg2");
-    $("#authMsg").textContent = `验证码已发送至 ${email}`;
+    $("#authMsg").textContent = `验证码已发至 ${email}，5分钟内有效`;
+    setTimeout(() => { btn.disabled = false; btn.textContent = "重新发送"; }, 60000);
   } catch (err) {
     $("#authMsg").textContent = err.message;
-    btn.disabled = false;
+    btn.disabled = false; btn.textContent = "发送验证码";
   }
 }
 
 async function doRegister() {
-  const payload = {
-    username: $("#authUser").value.trim(),
-    password: $("#authPass").value,
-    email: regEmail,
-    code: $("#regCode").value.trim(),
-  };
+  const username = $("#regUser").value.trim();
+  const password = $("#regPass").value;
+  const confirm  = $("#regPassConfirm").value;
+  const code     = $("#regCode").value.trim();
+  const email    = $("#regEmail").value.trim();
+  if (!username)            { $("#authMsg").textContent = "请填写用户名"; return; }
+  if (password.length < 6)  { $("#authMsg").textContent = "密码至少6位"; return; }
+  if (password !== confirm)  { $("#authMsg").textContent = "两次密码不一致"; return; }
+  if (!email)               { $("#authMsg").textContent = "请填写邮箱"; return; }
+  if (code.length !== 6)    { $("#authMsg").textContent = "请填写6位验证码"; return; }
   try {
-    const data = await api("/api/register", { method: "POST", body: JSON.stringify(payload) });
-    state.user = data.user;
-    state.level = data.level;
-    $("#authDialog").close();
-    setRegMode("login");
-    $("#authMsg").textContent = "";
-    renderProfile();
-    loadRumors();
-  } catch (err) {
-    $("#authMsg").textContent = err.message;
-  }
+    const data = await api("/api/register", { method: "POST", body: JSON.stringify({ username, password, email, code }) });
+    state.user = data.user; state.level = data.level;
+    $("#authDialog").close(); setRegMode("login");
+    renderProfile(); loadRumors();
+  } catch (err) { $("#authMsg").textContent = err.message; }
 }
 
+// ── 事件绑定 ───────────────────────────────────────────────
 function wire() {
   $$(".nav button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
   $("#rumorGrid").addEventListener("click", (e) => {
@@ -327,36 +312,34 @@ function wire() {
     }, { rootMargin: "200px" }).observe(sentinel);
   }
   $("#searchInput").addEventListener("input", debounce(() => loadRumors(true), 250));
-  $("#tierFilter").addEventListener("change", () => {
-    state.selectedTier = $("#tierFilter").value;
-    loadRumors(true);
-  });
+  $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; loadRumors(true); });
   $("#refreshFeed").addEventListener("click", loadDailyStats);
   $("#submitForm").addEventListener("submit", submitRumor);
   $("#summarizeBtn").addEventListener("click", summarizeRumor);
-  $("#refreshBacktest").addEventListener("click", async () => {
-    await api("/api/backtests/refresh", { method: "POST" });
-    loadBacktests();
-  });
+  $("#refreshBacktest").addEventListener("click", async () => { await api("/api/backtests/refresh", { method: "POST" }); loadBacktests(); });
+
+  // 登录/注册弹窗
   $("#loginOpen").addEventListener("click", () => { setRegMode("login"); $("#authDialog").showModal(); });
   $("#loginBtn").addEventListener("click", () => auth("login"));
-  $("#registerBtn").addEventListener("click", () => setRegMode("reg1"));
+  $("#toRegBtn").addEventListener("click", () => setRegMode("reg"));
   $("#sendCodeBtn").addEventListener("click", sendCode);
   $("#doRegisterBtn").addEventListener("click", doRegister);
-  $("#regBackBtn").addEventListener("click", () => setRegMode(regEmail ? "reg1" : "login"));
+  $("#regBackBtn").addEventListener("click", () => setRegMode("login"));
+  // 眼睛按钮（事件委托）
+  $("#authDialog").addEventListener("click", (e) => {
+    const btn = e.target.closest(".eye-btn");
+    if (btn) toggleEye(btn.dataset.target);
+  });
+
   $("#logoutBtn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
-    await loadMe();
-    await loadRumors();
+    await loadMe(); await loadRumors();
   });
 }
 
 function debounce(fn, wait) {
   let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), wait);
-  };
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
 }
 
 wire();

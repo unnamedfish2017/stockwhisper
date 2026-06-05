@@ -139,34 +139,46 @@
       </main>
     </div>
 
+    <footer class="disclaimer">
+      本项目为开源学习分享，所有内容<strong>不构成任何投资建议</strong>，不得用于商业用途。投资有风险，入市需谨慎。
+    </footer>
+
     <dialog id="authDialog">
       <form method="dialog" class="auth-panel">
-        <h3 id="authTitle">账号</h3>
+        <h3 id="authTitle">登录</h3>
 
-        <!-- 登录 / 注册第二步共用字段 -->
-        <div id="authFields">
-          <input id="authUser" placeholder="用户名" />
-          <input id="authPass" type="password" placeholder="密码" />
-        </div>
-
-        <!-- 注册第一步：邮箱 + 发验证码 -->
-        <div id="regStep1" style="display:none">
-          <div style="display:flex;gap:6px">
-            <input id="regEmail" type="email" placeholder="邮箱" style="flex:1" />
-            <button id="sendCodeBtn" type="button">发送验证码</button>
+        <!-- 登录 -->
+        <div id="loginForm">
+          <input id="authUser" placeholder="用户名" autocomplete="username" />
+          <div class="pass-wrap">
+            <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" />
+            <button type="button" class="eye-btn" data-target="authPass">👁</button>
           </div>
         </div>
 
-        <!-- 注册第二步：验证码 -->
-        <div id="regStep2" style="display:none">
-          <input id="regCode" placeholder="6位验证码" maxlength="6" />
+        <!-- 注册表单（单页） -->
+        <div id="regForm" style="display:none">
+          <input id="regUser" placeholder="用户名" autocomplete="username" />
+          <div class="pass-wrap">
+            <input id="regPass" type="password" placeholder="密码（至少4位）" autocomplete="new-password" />
+            <button type="button" class="eye-btn" data-target="regPass">👁</button>
+          </div>
+          <div class="pass-wrap">
+            <input id="regPassConfirm" type="password" placeholder="确认密码" autocomplete="new-password" />
+            <button type="button" class="eye-btn" data-target="regPassConfirm">👁</button>
+          </div>
+          <div class="pass-wrap">
+            <input id="regEmail" type="email" placeholder="邮箱" autocomplete="email" />
+            <button id="sendCodeBtn" type="button">发送验证码</button>
+          </div>
+          <input id="regCode" placeholder="6位验证码" maxlength="6" inputmode="numeric" />
         </div>
 
         <div class="dialog-actions">
           <button id="loginBtn" type="button">登录</button>
-          <button id="registerBtn" type="button">注册</button>
+          <button id="toRegBtn" type="button" class="ghost">注册账号</button>
           <button id="doRegisterBtn" type="button" style="display:none">确认注册</button>
-          <button id="regBackBtn" type="button" class="ghost" style="display:none">返回</button>
+          <button id="regBackBtn" type="button" class="ghost" style="display:none">返回登录</button>
           <button type="submit" class="ghost">关闭</button>
         </div>
         <p id="authMsg"></p>
