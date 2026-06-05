@@ -1,0 +1,363 @@
+const state = { user: null, level: null, view: "feed", feedDate: "", selectedTier: "", feedOffset: 0, feedHasMore: true, feedLoading: false };
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    credentials: "same-origin",
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "请求失败");
+  return data;
+}
+
+function pct(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "-";
+  const n = Number(v) * 100;
+  return `<span class="${n >= 0 ? "pos" : "neg"}">${n.toFixed(1)}%</span>`;
+}
+
+function renderAuthButtons() {
+  const loggedIn = !!state.user && !state.user.is_guest;
+  $("#loginOpen").style.display = loggedIn ? "none" : "";
+  $("#logoutBtn").style.display = loggedIn ? "" : "none";
+}
+
+function renderProfile() {
+  const u = state.user;
+  if (!u) return;
+  renderAuthButtons();
+  $("#profile").innerHTML = `
+    <h3>${u.display_name || u.username}</h3>
+    <p>${u.is_guest ? "默认游客会话" : "已登录账号"}</p>
+    <div class="metric"><span>等级</span><strong>${state.level.name}</strong></div>
+    <div class="metric"><span>经验值</span><strong>${u.xp}</strong></div>
+    <div class="metric"><span>贡献度</span><strong>${Number(u.contribution || 0).toFixed(1)}</strong></div>
+    <div class="metric"><span>信誉分</span><strong>${Number(u.reputation).toFixed(1)}</strong></div>
+    <div class="metric"><span>直看额度</span><strong>${u.direct_quota}</strong></div>
+  `;
+}
+
+function switchView(view) {
+  state.view = view;
+  $$(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $$(".view").forEach((v) => v.classList.remove("active"));
+  $(`#${view}View`).classList.add("active");
+  if (view === "backtest") loadBacktests();
+  if (view === "rank") loadLeaderboard();
+}
+
+async function loadMe() {
+  const data = await api("/api/me");
+  state.user = data.user;
+  state.level = data.level;
+  renderProfile();
+}
+
+async function loadRumors(reset = true) {
+  if (state.feedLoading) return;
+  if (!reset && !state.feedHasMore) return;
+  state.feedLoading = true;
+  const grid = $("#rumorGrid");
+  if (reset) {
+    state.feedOffset = 0;
+    state.feedHasMore = true;
+    grid.innerHTML = "";
+  }
+  const sentinel = $("#feedSentinel");
+  if (sentinel) sentinel.textContent = "加载中…";
+  try {
+    const q = encodeURIComponent($("#searchInput").value.trim());
+    const tier = encodeURIComponent(state.selectedTier || $("#tierFilter").value);
+    const date = encodeURIComponent(state.feedDate || "");
+    const data = await api(`/api/rumors?q=${q}&tier=${tier}&date=${date}&offset=${state.feedOffset}&limit=24`);
+    grid.insertAdjacentHTML("beforeend", data.items.map(renderCard).join(""));
+    state.feedOffset += data.items.length;
+    state.feedHasMore = data.has_more;
+    if (sentinel) {
+      if (grid.children.length === 0) sentinel.textContent = "暂无情报";
+      else sentinel.textContent = state.feedHasMore ? "下拉加载更多" : "已经到底了";
+    }
+  } catch (err) {
+    if (sentinel) sentinel.textContent = err.message;
+  } finally {
+    state.feedLoading = false;
+  }
+}
+
+async function loadDailyStats() {
+  const data = await api("/api/daily-stats");
+  state.feedDate = data.date;
+  $("#dailyStats").innerHTML = data.items.map(renderTierStat).join("");
+  $("#tierPanel").innerHTML = `
+    <strong>${data.date} 等级总览</strong>
+    <span>当前贡献度 ${Number(data.contribution || 0).toFixed(1)}，贡献度按 30 天半衰期衰减。</span>
+  `;
+  $$(".tier-card").forEach((card) => card.addEventListener("click", () => selectTier(card.dataset.tier, card.dataset.allowed === "true")));
+  await loadRumors(true);
+}
+
+function renderTierStat(item) {
+  const status = item.allowed ? "可查看" : `需 ${item.requirement}`;
+  return `
+    <button class="tier-card ${item.allowed ? "" : "locked-tier"}" data-tier="${item.tier}" data-allowed="${item.allowed}">
+      <span class="tier-name">${item.label}</span>
+      <strong>${item.count}</strong>
+      <span>${status}</span>
+    </button>
+  `;
+}
+
+async function selectTier(tier, allowed) {
+  state.selectedTier = tier;
+  $("#tierFilter").value = tier;
+  $("#tierPanel").innerHTML = `<strong>${tier}级情报</strong><span>${allowed ? "已开放，下方展示该等级明细。" : "未开放，仅展示脱敏信息，可通过提升等级或贡献度解锁。"}</span>`;
+  await loadRumors();
+}
+
+function renderCard(item) {
+  const locked = item.hidden ? "locked" : "";
+  const reasons = item.ai_reasons.map((r) => `<span class="chip">${r}</span>`).join("");
+  return `
+    <article class="card ${locked}">
+      <div class="card-head">
+        <div class="target">${item.target}</div>
+        <div class="badge">${item.ai_tier}${item.ai_score}</div>
+      </div>
+      <p class="logic">${item.logic}</p>
+      <div class="meta">
+        <span class="chip">${item.recommendation_date}</span>
+        <span class="chip">${item.source === "reference" ? "历史样本" : "社区分享"}</span>
+        ${reasons}
+      </div>
+      <div class="card-actions">
+        ${item.unlocked ? `<button class="open-btn" data-id="${item.id}">查看详情</button>` : `<button class="unlock-btn" data-id="${item.id}">使用额度直看</button>`}
+      </div>
+    </article>
+  `;
+}
+
+async function openRumor(id) {
+  const data = await api(`/api/rumors/${id}`);
+  const bt = data.backtest;
+  const msg = [
+    data.item.raw_content,
+    "",
+    bt ? `回测：5日 ${strip(pct(bt.ret_5))} / 20日 ${strip(pct(bt.ret_20))} / 60日 ${strip(pct(bt.ret_60))}` : "回测：暂无",
+  ].join("\n");
+  alert(msg);
+}
+
+function strip(html) {
+  return html.replace(/<[^>]*>/g, "");
+}
+
+async function unlockRumor(id) {
+  try {
+    await api(`/api/rumors/${id}/unlock`, { method: "POST" });
+    await loadMe();
+    await loadRumors();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function submitRumor(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const payload = Object.fromEntries(form.entries());
+  const result = $("#submitResult");
+  try {
+    const data = await api("/api/rumors", { method: "POST", body: JSON.stringify(payload) });
+    result.classList.add("show");
+    result.innerHTML = `
+      <h3>评分 ${data.score.tier}${data.score.score}</h3>
+      <p>${data.score.reasons.join("、")}</p>
+      <p>${(data.summary.key_points || []).join("；")}</p>
+      <p>${data.unlocked ? `已解锁：${data.unlocked.target}` : "暂无可匹配解锁消息"}</p>
+    `;
+    event.target.reset();
+    await loadMe();
+    await loadRumors();
+  } catch (err) {
+    result.classList.add("show");
+    result.innerHTML = `<p class="neg">${err.message}</p>`;
+  }
+}
+
+async function summarizeRumor() {
+  const form = $("#submitForm");
+  const payload = Object.fromEntries(new FormData(form).entries());
+  const result = $("#submitResult");
+  try {
+    const data = await api("/api/rumors/summarize", { method: "POST", body: JSON.stringify(payload) });
+    form.elements.target.value = form.elements.target.value || data.target || "";
+    form.elements.logic.value = form.elements.logic.value || data.logic || "";
+    form.elements.institution.value = form.elements.institution.value || data.institution || "";
+    form.elements.recommender.value = form.elements.recommender.value || data.recommender || "";
+    result.classList.add("show");
+    result.innerHTML = `
+      <h3>${data.summary_source === "llm" ? "AI 已提炼" : "规则已提炼"}</h3>
+      <p>${(data.key_points || []).join("；")}</p>
+    `;
+  } catch (err) {
+    result.classList.add("show");
+    result.innerHTML = `<p class="neg">${err.message}</p>`;
+  }
+}
+
+async function loadBacktests() {
+  const data = await api("/api/backtests");
+  $("#backtestRows").innerHTML = data.items.map((r) => `
+    <tr>
+      <td>${r.target}</td>
+      <td>${r.ai_tier}${r.ai_score}</td>
+      <td>${r.code || "-"}</td>
+      <td>${pct(r.ret_5)}</td>
+      <td>${pct(r.ret_20)}</td>
+      <td>${pct(r.ret_60)}</td>
+      <td>${pct(r.max_ret_60)}</td>
+      <td>${r.status || "pending"}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadLeaderboard() {
+  const data = await api("/api/leaderboard");
+  $("#leaderboard").innerHTML = data.items.map((u, i) => `
+    <div class="rank-row">
+      <strong>#${i + 1}</strong>
+      <div>
+        <strong>${u.display_name}</strong>
+        <p>${u.level}</p>
+      </div>
+      <span>${u.xp} XP</span>
+      <span>${Number(u.reputation).toFixed(1)} 分</span>
+      <span>${u.direct_quota} 额度</span>
+    </div>
+  `).join("");
+}
+
+let regEmail = "";
+
+function setRegMode(step) {
+  // step: "login" | "reg1" | "reg2"
+  const isLogin = step === "login";
+  const isReg1 = step === "reg1";
+  const isReg2 = step === "reg2";
+  $("#authTitle").textContent = isLogin ? "登录" : "注册";
+  $("#authFields").style.display = isLogin || isReg2 ? "" : "none";
+  $("#regStep1").style.display = isReg1 || isReg2 ? "" : "none";
+  $("#regStep2").style.display = isReg2 ? "" : "none";
+  $("#loginBtn").style.display = isLogin ? "" : "none";
+  $("#registerBtn").style.display = isLogin ? "" : "none";
+  $("#doRegisterBtn").style.display = isReg2 ? "" : "none";
+  $("#regBackBtn").style.display = isReg1 || isReg2 ? "" : "none";
+  $("#authMsg").textContent = "";
+}
+
+async function auth(mode) {
+  const payload = { username: $("#authUser").value.trim(), password: $("#authPass").value };
+  try {
+    const data = await api(`/api/${mode}`, { method: "POST", body: JSON.stringify(payload) });
+    state.user = data.user;
+    state.level = data.level;
+    $("#authDialog").close();
+    $("#authMsg").textContent = "";
+    setRegMode("login");
+    renderProfile();
+    loadRumors();
+  } catch (err) {
+    $("#authMsg").textContent = err.message;
+  }
+}
+
+async function sendCode() {
+  const email = $("#regEmail").value.trim();
+  if (!email) { $("#authMsg").textContent = "请填写邮箱"; return; }
+  const btn = $("#sendCodeBtn");
+  btn.disabled = true;
+  try {
+    await api("/api/send-code", { method: "POST", body: JSON.stringify({ email }) });
+    regEmail = email;
+    setRegMode("reg2");
+    $("#authMsg").textContent = `验证码已发送至 ${email}`;
+  } catch (err) {
+    $("#authMsg").textContent = err.message;
+    btn.disabled = false;
+  }
+}
+
+async function doRegister() {
+  const payload = {
+    username: $("#authUser").value.trim(),
+    password: $("#authPass").value,
+    email: regEmail,
+    code: $("#regCode").value.trim(),
+  };
+  try {
+    const data = await api("/api/register", { method: "POST", body: JSON.stringify(payload) });
+    state.user = data.user;
+    state.level = data.level;
+    $("#authDialog").close();
+    setRegMode("login");
+    $("#authMsg").textContent = "";
+    renderProfile();
+    loadRumors();
+  } catch (err) {
+    $("#authMsg").textContent = err.message;
+  }
+}
+
+function wire() {
+  $$(".nav button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
+  $("#rumorGrid").addEventListener("click", (e) => {
+    const open = e.target.closest(".open-btn");
+    if (open) return openRumor(open.dataset.id);
+    const unlock = e.target.closest(".unlock-btn");
+    if (unlock) return unlockRumor(unlock.dataset.id);
+  });
+  const sentinel = $("#feedSentinel");
+  if (sentinel && "IntersectionObserver" in window) {
+    new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) loadRumors(false);
+    }, { rootMargin: "200px" }).observe(sentinel);
+  }
+  $("#searchInput").addEventListener("input", debounce(() => loadRumors(true), 250));
+  $("#tierFilter").addEventListener("change", () => {
+    state.selectedTier = $("#tierFilter").value;
+    loadRumors(true);
+  });
+  $("#refreshFeed").addEventListener("click", loadDailyStats);
+  $("#submitForm").addEventListener("submit", submitRumor);
+  $("#summarizeBtn").addEventListener("click", summarizeRumor);
+  $("#refreshBacktest").addEventListener("click", async () => {
+    await api("/api/backtests/refresh", { method: "POST" });
+    loadBacktests();
+  });
+  $("#loginOpen").addEventListener("click", () => { setRegMode("login"); $("#authDialog").showModal(); });
+  $("#loginBtn").addEventListener("click", () => auth("login"));
+  $("#registerBtn").addEventListener("click", () => setRegMode("reg1"));
+  $("#sendCodeBtn").addEventListener("click", sendCode);
+  $("#doRegisterBtn").addEventListener("click", doRegister);
+  $("#regBackBtn").addEventListener("click", () => setRegMode(regEmail ? "reg1" : "login"));
+  $("#logoutBtn").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" });
+    await loadMe();
+    await loadRumors();
+  });
+}
+
+function debounce(fn, wait) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
+wire();
+loadMe().then(loadDailyStats);

@@ -1,0 +1,1 @@
+"""stockwhisper application package."""
