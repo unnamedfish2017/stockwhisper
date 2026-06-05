@@ -404,7 +404,7 @@ def init_db() -> None:
         con.execute("alter table users add column email text")
         con.commit()
     bt_cols = {row["name"] for row in con.execute("pragma table_info(backtests)").fetchall()}
-    for col, defn in [("ret_t1_1", "real"), ("ret_t1_5", "real"), ("ret_t1_20", "real"), ("signal_value", "real")]:
+    for col, defn in [("ret_t1_1", "real"), ("ret_t1_5", "real"), ("ret_t1_20", "real"), ("signal_value", "real"), ("max_drawdown_20", "real")]:
         if col not in bt_cols:
             con.execute(f"alter table backtests add column {col} {defn}")
     con.commit()
@@ -554,6 +554,7 @@ def user_out(user: sqlite3.Row) -> dict[str, Any]:
         "contribution": contribution_for_user(user["id"]),
         "contribution_half_life_days": CONTRIBUTION_HALF_LIFE_DAYS,
         "created_at": user["created_at"],
+        "radar": calc_user_radar(user["id"]) if not user["is_guest"] else None,
     }
 
 
@@ -688,8 +689,8 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
         code, name = mapped[row["id"]]
         if not code or code not in bars_by_code:
             con.execute(
-                "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (row["id"], None, name, None, None, None, None, None, None, None, None, None, None, "missing_code", "未匹配到本地行情代码"),
+                "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,max_drawdown_20,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (row["id"], None, name, None, None, None, None, None, None, None, None, None, None, None, "missing_code", "未匹配到本地行情代码"),
             )
             done += 1
             continue
@@ -731,9 +732,14 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
                             return None
                         return float(future_open.iloc[n] / buy_price - 1)
 
-                    ret_t1_1  = ret_t1_at(1)   # T+1买入，T+2开盘卖
-                    ret_t1_5  = ret_t1_at(5)   # T+1买入，T+6开盘卖
-                    ret_t1_20 = ret_t1_at(20)  # T+1买入，T+21开盘卖
+                    ret_t1_1  = ret_t1_at(1)
+                    ret_t1_5  = ret_t1_at(5)
+                    ret_t1_20 = ret_t1_at(20)
+                    # 20日内最大回撤（相对买入价）
+                    close_t1_20 = df["close"].dropna()
+                    close_t1_20 = close_t1_20[close_t1_20.index > rec_date].iloc[:20]
+                    if len(close_t1_20) > 0:
+                        max_drawdown_20 = float((close_t1_20.min() - buy_price) / buy_price)
 
         price_start = float(future_close.iloc[0]) if len(future_close) >= 1 else None
         start_date = future_close.index[0].strftime("%Y-%m-%d") if len(future_close) >= 1 else None
@@ -741,10 +747,10 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
         details = source_details if price_start else "推荐日后暂无足够行情"
 
         con.execute(
-            "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,max_drawdown_20,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], code, name, start_date, price_start,
              ret_at_close(5), ret_at_close(20), ret_at_close(60), max_ret,
-             ret_t1_1, ret_t1_5, ret_t1_20, signal_value,
+             ret_t1_1, ret_t1_5, ret_t1_20, signal_value, max_drawdown_20,
              status, details),
         )
         done += 1
@@ -823,6 +829,96 @@ def recalc_user_scores() -> None:
             "update users set xp = ?, reputation = ?, direct_quota = ? where id = ?",
             (xp, max(1, min(99, rep)), lvl["quota"], user_id),
         )
+
+
+def calc_user_radar(user_id: int) -> dict[str, float]:
+    """返回四维评分 (0-100)：活跃度、进攻性、防守性、独特性。"""
+    now = datetime.now(timezone.utc)
+    ninety_days_ago = (now.timestamp() - 90 * 86400)
+
+    # 活跃度：近90天推荐条数 vs 全体用户
+    my_count = query(
+        "select count(*) n from rumors where submitter_id = ? and created_at >= ?",
+        (user_id, datetime.fromtimestamp(ninety_days_ago, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")),
+    )[0]["n"]
+    all_counts = query(
+        """select submitter_id, count(*) n from rumors
+           where submitter_id is not null and created_at >= ?
+           group by submitter_id""",
+        (datetime.fromtimestamp(ninety_days_ago, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),),
+    )
+    activity = _percentile(my_count, [r["n"] for r in all_counts])
+
+    # 进攻性、防守性：T+1三期均值收益 & 20日最大回撤
+    my_bt = query(
+        """select b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.max_drawdown_20
+           from rumors r join backtests b on b.rumor_id = r.id
+           where r.submitter_id = ? and b.ret_t1_1 is not null""",
+        (user_id,),
+    )
+    all_bt = query(
+        """select r.submitter_id, b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.max_drawdown_20
+           from rumors r join backtests b on b.rumor_id = r.id
+           where r.submitter_id is not null and b.ret_t1_1 is not null""",
+    )
+
+    def avg_ret(rows: list) -> float | None:
+        vals = []
+        for r in rows:
+            v = [r["ret_t1_1"], r["ret_t1_5"], r["ret_t1_20"]]
+            v = [x for x in v if x is not None]
+            if v:
+                vals.append(sum(v) / len(v))
+        return sum(vals) / len(vals) if vals else None
+
+    def avg_dd(rows: list) -> float | None:
+        vals = [r["max_drawdown_20"] for r in rows if r["max_drawdown_20"] is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    my_avg = avg_ret(my_bt)
+    all_avgs_by_user: dict[int, list] = {}
+    for r in all_bt:
+        all_avgs_by_user.setdefault(r["submitter_id"], []).append(r)
+    all_user_avgs = [avg_ret(v) for v in all_avgs_by_user.values() if avg_ret(v) is not None]
+    offense = _percentile(my_avg, all_user_avgs) if my_avg is not None else 50.0
+
+    my_dd = avg_dd(my_bt)
+    all_user_dds = [avg_dd(v) for v in all_avgs_by_user.values() if avg_dd(v) is not None]
+    # 回撤越小（越接近0）越好，取反后百分位
+    defense = _percentile(-my_dd if my_dd is not None else None,
+                          [-d for d in all_user_dds]) if my_dd is not None else 50.0
+
+    # 独特性：自己推荐过的股票中，仅自己推荐过的比例
+    my_targets = query(
+        "select distinct target from rumors where submitter_id = ?", (user_id,)
+    )
+    if not my_targets:
+        uniqueness = 50.0
+    else:
+        target_list = [r["target"] for r in my_targets]
+        unique_count = 0
+        for t in target_list:
+            others = query(
+                "select count(*) n from rumors where target = ? and submitter_id != ?", (t, user_id)
+            )[0]["n"]
+            if others == 0:
+                unique_count += 1
+        uniqueness = round(unique_count / len(target_list) * 100, 1)
+
+    return {
+        "activity":   round(activity, 1),
+        "offense":    round(offense, 1),
+        "defense":    round(defense, 1),
+        "uniqueness": round(uniqueness, 1),
+    }
+
+
+def _percentile(value: float | None, population: list[float]) -> float:
+    if value is None or not population:
+        return 50.0
+    n = len(population)
+    rank = sum(1 for v in population if v <= value)
+    return round(rank / n * 100, 1)
 
 
 @app.on_event("startup")
@@ -1107,7 +1203,7 @@ def leaderboard(response: Response, agu_session: str | None = Cookie(default=Non
         order by xp desc, reputation desc limit 50
         """
     )
-    return {"items": [{**dict(r), "level": level_for(r["xp"])["name"]} for r in rows]}
+    return {"items": [{**dict(r), "level": level_for(r["xp"])["name"], "radar": calc_user_radar(r["id"])} for r in rows]}
 
 
 if __name__ == "__main__":

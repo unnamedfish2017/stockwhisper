@@ -26,6 +26,32 @@ function renderAuthButtons() {
   $("#logoutBtn").style.display = loggedIn ? "" : "none";
 }
 
+function renderRadar(radar) {
+  if (!radar) return "";
+  const labels = ["活跃度", "进攻性", "防守性", "独特性"];
+  const vals = [radar.activity, radar.offense, radar.defense, radar.uniqueness];
+  const cx = 60, cy = 60, r = 46;
+  const angles = labels.map((_, i) => (i * 2 * Math.PI / 4) - Math.PI / 2);
+  const pt = (v, i) => {
+    const ratio = v / 100;
+    return [cx + r * ratio * Math.cos(angles[i]), cy + r * ratio * Math.sin(angles[i])];
+  };
+  const grid = [0.25, 0.5, 0.75, 1].map(s =>
+    `<polygon points="${angles.map((_, i) => { const x = cx + r * s * Math.cos(angles[i]); const y = cy + r * s * Math.sin(angles[i]); return `${x},${y}`; }).join(" ")}" fill="none" stroke="var(--line)" stroke-width="0.8"/>`
+  ).join("");
+  const axes = angles.map((a, i) => `<line x1="${cx}" y1="${cy}" x2="${cx + r * Math.cos(a)}" y2="${cy + r * Math.sin(a)}" stroke="var(--line)" stroke-width="0.8"/>`).join("");
+  const shape = `<polygon points="${vals.map((v, i) => pt(v, i).join(",")).join(" ")}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="1.5"/>`;
+  const labelEls = labels.map((l, i) => {
+    const [x, y] = pt(115, i);
+    return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="var(--muted)">${l}</text>`;
+  }).join("");
+  const dots = vals.map((v, i) => {
+    const [x, y] = pt(v, i);
+    return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--accent)"><title>${labels[i]}: ${v}</title></circle>`;
+  }).join("");
+  return `<svg viewBox="0 0 120 120" width="120" height="120" style="display:block;margin:8px auto 0">${grid}${axes}${shape}${dots}${labelEls}</svg>`;
+}
+
 function renderProfile() {
   const u = state.user;
   if (!u) return;
@@ -38,6 +64,7 @@ function renderProfile() {
     <div class="metric"><span>贡献度</span><strong>${Number(u.contribution || 0).toFixed(1)}</strong></div>
     <div class="metric"><span>信誉分</span><strong>${Number(u.reputation).toFixed(1)}</strong></div>
     <div class="metric"><span>直看额度</span><strong>${u.direct_quota}</strong></div>
+    ${renderRadar(u.radar)}
   `;
 }
 
@@ -227,6 +254,7 @@ async function loadLeaderboard() {
       <span>${u.xp} XP</span>
       <span>${Number(u.reputation).toFixed(1)} 分</span>
       <span>${u.direct_quota} 额度</span>
+      <div>${renderRadar(u.radar)}</div>
     </div>
   `).join("");
 }
