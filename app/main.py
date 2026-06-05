@@ -800,6 +800,9 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
     return {"ok": True}
 
 
+DAILY_REG_LIMIT = 100
+
+
 @app.post("/api/register")
 def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
     email = payload.email.strip().lower()
@@ -810,6 +813,13 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
     if not rows or rows[0]["code"] != payload.code:
         raise HTTPException(400, "验证码错误或已过期")
     execute("delete from email_verifications where email = ?", (email,))
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    count = query(
+        "select count(*) n from users where is_guest = 0 and created_at >= ?",
+        (today,),
+    )[0]["n"]
+    if count >= DAILY_REG_LIMIT:
+        raise HTTPException(429, f"今日注册名额已满（{DAILY_REG_LIMIT} 人），请明日再试，您已在排队中")
     if query("select 1 from users where username = ?", (payload.username,)):
         raise HTTPException(409, "用户名已存在")
     if query("select 1 from users where email = ?", (email,)):
