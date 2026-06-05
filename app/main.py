@@ -403,6 +403,11 @@ def init_db() -> None:
     if "email" not in user_cols:
         con.execute("alter table users add column email text")
         con.commit()
+    bt_cols = {row["name"] for row in con.execute("pragma table_info(backtests)").fetchall()}
+    for col, defn in [("ret_t1_1", "real"), ("ret_t1_5", "real"), ("ret_t1_20", "real"), ("signal_value", "real")]:
+        if col not in bt_cols:
+            con.execute(f"alter table backtests add column {col} {defn}")
+    con.commit()
     con.close()
     seed_reference_data()
 
@@ -651,7 +656,7 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
         base_sql = "select * from rumors order by recommendation_date desc"
         args: tuple[Any, ...] = ()
     else:
-        base_sql = "select * from rumors where id not in (select rumor_id from backtests) order by recommendation_date desc"
+        base_sql = "select * from rumors where id not in (select rumor_id from backtests where ret_t1_1 is not null) order by recommendation_date desc"
         args = ()
     rows = query(base_sql + (" limit ?" if limit else ""), (*args, limit) if limit else args)
     if not rows:
@@ -661,78 +666,127 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
         mapped = {row["id"]: find_code(row["target"], lookup) for row in rows}
         codes = sorted({code for code, _ in mapped.values() if code})
         if RAW_DAILY.exists() and codes:
-            raw = pd.read_parquet(RAW_DAILY, columns=["code", "date", "close"])
+            raw = pd.read_parquet(RAW_DAILY, columns=["code", "date", "open", "high", "low", "close"])
             raw = raw[raw["code"].isin(codes)].copy()
             raw["date"] = pd.to_datetime(raw["date"].astype(str))
             raw = raw[raw["date"].le(END_DATE)].sort_values(["code", "date"])
-            series_by_code = {
-                code: g.set_index("date")["close"].dropna()
-                for code, g in raw.groupby("code", sort=False)
-            }
-            source_details = "使用本地未复权日线 close 计算"
+            bars_by_code = {code: g.set_index("date") for code, g in raw.groupby("code", sort=False)}
+            source_details = "T+1开盘买入，未复权"
         else:
             bars = pd.read_pickle(DAILY_PICKLE)
+            # pickle 只有 closew，无 open，降级为原逻辑
             close = bars["closew"].copy()
             close.index = pd.to_datetime(close.index)
             close = close[close.index <= END_DATE]
-            series_by_code = {code: close[code].dropna() for code in codes if code in close.columns}
-            source_details = "使用本地前复权日线 closew 计算"
+            bars_by_code = {code: close[[code]].rename(columns={code: "close"}) for code in codes if code in close.columns}
+            source_details = "前复权收盘价（无开盘价数据）"
     except Exception:
         return 0
     con = db()
     done = 0
     for row in rows:
         code, name = mapped[row["id"]]
-        if not code or code not in series_by_code:
-            status, details = "missing_code", "未匹配到本地行情代码"
-            values = (None, name, None, None, None, None, None, None, status, details)
-        else:
-            series = series_by_code[code]
-            start = pd.Timestamp(row["recommendation_date"])
-            future = series[series.index >= start]
-            if len(future) < 2:
-                status, details = "pending", "推荐日后暂无足够行情"
-                values = (code, name, None, None, None, None, None, None, status, details)
-            else:
-                price0 = float(future.iloc[0])
-                def ret_at(n: int) -> float | None:
-                    if len(future) <= n or price0 == 0:
-                        return None
-                    return float(future.iloc[n] / price0 - 1)
-                window = future.iloc[: min(len(future), 61)]
-                max_ret = float(window.max() / price0 - 1) if price0 else None
-                status, details = "ok", source_details
-                values = (
-                    code,
-                    name,
-                    future.index[0].strftime("%Y-%m-%d"),
-                    price0,
-                    ret_at(5),
-                    ret_at(20),
-                    ret_at(60),
-                    max_ret,
-                    status,
-                    details,
-                )
+        if not code or code not in bars_by_code:
+            con.execute(
+                "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (row["id"], None, name, None, None, None, None, None, None, None, None, None, None, "missing_code", "未匹配到本地行情代码"),
+            )
+            done += 1
+            continue
+
+        df = bars_by_code[code]
+        rec_date = pd.Timestamp(row["recommendation_date"])
+
+        # 旧逻辑（close-based）用于向后兼容
+        close_ser = df["close"].dropna() if "close" in df.columns else pd.Series(dtype=float)
+        future_close = close_ser[close_ser.index >= rec_date]
+
+        def ret_at_close(n: int) -> float | None:
+            if len(future_close) <= n or float(future_close.iloc[0]) == 0:
+                return None
+            return float(future_close.iloc[n] / future_close.iloc[0] - 1)
+
+        max_ret = None
+        if len(future_close) >= 2 and float(future_close.iloc[0]) != 0:
+            window = future_close.iloc[: min(len(future_close), 61)]
+            max_ret = float(window.max() / future_close.iloc[0] - 1)
+
+        # T+1 逻辑：找推荐日之后第一个交易日
+        future_df = df[df.index > rec_date]
+        ret_t1_1 = ret_t1_5 = ret_t1_20 = None
+        signal_value = None
+
+        if "open" in df.columns and len(future_df) >= 1:
+            t1_row = future_df.iloc[0]
+            # 1字板过滤：T+1当天最高价 == 最低价
+            if float(t1_row.get("high", 0)) != float(t1_row.get("low", 1)):
+                buy_price = float(t1_row["open"])
+                if buy_price > 0:
+                    open_ser = df["open"].dropna()
+                    future_open = open_ser[open_ser.index > rec_date]
+
+                    def ret_t1_at(n: int) -> float | None:
+                        # 持有N日后下一交易日开盘卖出，即 future_open.iloc[n]
+                        if len(future_open) <= n:
+                            return None
+                        return float(future_open.iloc[n] / buy_price - 1)
+
+                    ret_t1_1  = ret_t1_at(1)   # T+1买入，T+2开盘卖
+                    ret_t1_5  = ret_t1_at(5)   # T+1买入，T+6开盘卖
+                    ret_t1_20 = ret_t1_at(20)  # T+1买入，T+21开盘卖
+
+        price_start = float(future_close.iloc[0]) if len(future_close) >= 1 else None
+        start_date = future_close.index[0].strftime("%Y-%m-%d") if len(future_close) >= 1 else None
+        status = "ok" if price_start else "pending"
+        details = source_details if price_start else "推荐日后暂无足够行情"
+
         con.execute(
-            """
-            insert or replace into backtests
-            (rumor_id, code, name, start_date, price_start, ret_5, ret_20, ret_60, max_ret_60, status, details)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (row["id"], *values),
+            "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (row["id"], code, name, start_date, price_start,
+             ret_at_close(5), ret_at_close(20), ret_at_close(60), max_ret,
+             ret_t1_1, ret_t1_5, ret_t1_20, signal_value,
+             status, details),
         )
         done += 1
+
     con.commit()
     con.close()
+
+    # 计算全A百分位排名 signal_value（需要全量数据，在所有行写完后统一算）
+    _calc_signal_values()
     recalc_user_scores()
     return done
+
+
+def _calc_signal_values() -> None:
+    """根据 T+1 三期等权均值在全A的百分位，计算每条回测的 signal_value (0-100)。"""
+    rows = query("select rumor_id, ret_t1_1, ret_t1_5, ret_t1_20 from backtests where ret_t1_1 is not null")
+    if not rows:
+        return
+    scores: list[tuple[int, float]] = []
+    for r in rows:
+        vals = [v for v in (r["ret_t1_1"], r["ret_t1_5"], r["ret_t1_20"]) if v is not None]
+        if vals:
+            scores.append((r["rumor_id"], sum(vals) / len(vals)))
+    if not scores:
+        return
+    # 百分位排名
+    all_vals = sorted(v for _, v in scores)
+    n = len(all_vals)
+    con = db()
+    for rumor_id, avg in scores:
+        rank = sum(1 for v in all_vals if v <= avg)
+        pct = round(rank / n * 100, 1)
+        con.execute("update backtests set signal_value = ? where rumor_id = ?", (pct, rumor_id))
+    con.commit()
+    con.close()
 
 
 def recalc_user_scores() -> None:
     rows = query(
         """
-        select r.submitter_id, r.ai_score, b.ret_20, b.max_ret_60
+        select r.submitter_id, r.ai_score, r.created_at,
+               b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.signal_value
         from rumors r left join backtests b on b.rumor_id = r.id
         where r.submitter_id is not null
         """
@@ -740,21 +794,30 @@ def recalc_user_scores() -> None:
     grouped: dict[int, list[sqlite3.Row]] = {}
     for r in rows:
         grouped.setdefault(r["submitter_id"], []).append(r)
+    now = datetime.now(timezone.utc)
     for user_id, items in grouped.items():
         xp = 0
         perf = []
+        contribution = 0.0
         for item in items:
-            base = max(5, int(item["ai_score"] / 5))
-            ret20 = item["ret_20"]
-            max60 = item["max_ret_60"]
+            # signal_value (0-100 百分位) 有则用，无则退回 ai_score
+            sv = item["signal_value"]
+            base_score = float(sv) if sv is not None else float(item["ai_score"])
+            # XP：基础分 + T+1三期均值奖励
+            base_xp = max(5, int(base_score / 5))
+            t1_rets = [item["ret_t1_1"], item["ret_t1_5"], item["ret_t1_20"]]
+            t1_valid = [v for v in t1_rets if v is not None]
             bonus = 0
-            if ret20 is not None:
-                bonus += int(ret20 * 120)
-                perf.append(ret20)
-            if max60 is not None and max60 > 0.12:
-                bonus += 12
-            xp += max(1, base + bonus)
-        rep = 50 + (sum(perf) / len(perf) * 120 if perf else 0)
+            if t1_valid:
+                avg_ret = sum(t1_valid) / len(t1_valid)
+                bonus = int(avg_ret * 150)
+                perf.append(avg_ret)
+            xp += max(1, base_xp + bonus)
+            # 贡献度：以 base_score 为权重，按30天半衰期时间衰减
+            age_days = max(0.0, (now - parse_dt(item["created_at"])).total_seconds() / 86400)
+            decay = 0.5 ** (age_days / CONTRIBUTION_HALF_LIFE_DAYS)
+            contribution += base_score * decay
+        rep = 50 + (sum(perf) / len(perf) * 150 if perf else 0)
         lvl = level_for(xp)
         execute(
             "update users set xp = ?, reputation = ?, direct_quota = ? where id = ?",

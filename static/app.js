@@ -211,8 +211,9 @@ async function loadBacktests() {
   $("#backtestRows").innerHTML = data.items.map((r) => `
     <tr>
       <td>${r.target}</td><td>${r.ai_tier}${r.ai_score}</td><td>${r.code || "-"}</td>
-      <td>${pct(r.ret_5)}</td><td>${pct(r.ret_20)}</td><td>${pct(r.ret_60)}</td>
-      <td>${pct(r.max_ret_60)}</td><td>${r.status || "pending"}</td>
+      <td>${pct(r.ret_t1_1)}</td><td>${pct(r.ret_t1_5)}</td><td>${pct(r.ret_t1_20)}</td>
+      <td>${r.signal_value != null ? r.signal_value.toFixed(1) : "-"}</td>
+      <td>${r.status || "pending"}</td>
     </tr>
   `).join("");
 }
