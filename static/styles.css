@@ -175,6 +175,32 @@ textarea { min-height: 180px; resize: vertical; }
 .form-row { display: grid; gap: 7px; margin-bottom: 14px; }
 label { font-size: 13px; font-weight: 700; color: #344054; }
 .field-hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.field-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.field-title button { height: 30px; padding: 0 10px; font-size: 13px; }
+.stock-rows {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fbfcfe;
+}
+.stock-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 220px) auto;
+  gap: 10px;
+  align-items: center;
+}
+.stock-row-actions { display: flex; gap: 6px; }
+.stock-row-actions button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.stock-empty { color: var(--muted); font-size: 13px; }
 .form-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .result { margin-top: 14px; display: none; }
@@ -225,6 +251,8 @@ dialog {
   .tier-stats { grid-template-columns: 1fr 1fr; }
   .tier-panel { align-items: flex-start; flex-direction: column; }
   .form-two { grid-template-columns: 1fr; }
+  .stock-row { grid-template-columns: 1fr; }
+  .stock-row-actions { justify-content: flex-end; }
   .form-actions { flex-direction: column; }
   .rank-row { grid-template-columns: 38px 1fr; }
 }

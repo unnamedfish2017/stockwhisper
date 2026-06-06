@@ -12,10 +12,11 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib import request as urlrequest
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pandas as pd
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
@@ -31,6 +32,7 @@ PRIVATE_DB = ROOT.parent / "私有信息" / "info_collection.db"
 MARKET_ROOT = Path("/home/vscode/workspace/data/store/rsync")
 DAILY_PICKLE = MARKET_ROOT / "tonglian_data_daily" / "tonglian_data_daily.pickle"
 RAW_DAILY = MARKET_ROOT / "tonglian_data_daily" / "tonglian_stock_day_n.parquet"
+STOCK_LOOKUP_CACHE = DATA_DIR / "stock_lookup.json"
 END_DATE = pd.Timestamp(datetime.now(timezone.utc).date())
 SESSION_SECONDS = 60 * 60 * 24 * 30
 CONTRIBUTION_HALF_LIFE_DAYS = 30
@@ -47,6 +49,7 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
 EMAIL_CODE_TTL = 300  # 5 minutes
+LLM_DISABLED_UNTIL = 0.0
 
 
 class AuthPayload(BaseModel):
@@ -67,6 +70,7 @@ class RegisterPayload(BaseModel):
 
 class RumorPayload(BaseModel):
     target: str = Field(default="", max_length=120)
+    stock_codes: str = Field(default="", max_length=2000)
     logic: str = Field(default="", max_length=240)
     raw_content: str = Field(min_length=10, max_length=8000)
     institution: str = Field(default="", max_length=80)
@@ -140,7 +144,7 @@ def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
 
     text = " ".join(
         str(value(k))
-        for k in ("target", "logic", "raw_content", "institution", "recommender")
+        for k in ("target", "stock_codes", "logic", "raw_content", "institution", "recommender")
     )
     cn_len = len(re.findall(r"[\u4e00-\u9fff]", text))
     tickers = len(set(re.findall(r"\b[036]\d{5}\b|#[\u4e00-\u9fffA-Za-z0-9]+", text)))
@@ -176,7 +180,10 @@ def heuristic_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
             target = head_match.group(1)
         else:
             tags = re.findall(r"#([\u4e00-\u9fffA-Za-z0-9]{2,12})", text)
-            target = "、".join(dict.fromkeys(tags[:3])) or "待确认标的"
+            target = "、".join(dict.fromkeys(tags[:3]))
+    if not target:
+        matched = find_codes(text, code_lookup())
+        target = "、".join(name for _, name in matched[:8]) or "待确认标的"
     logic = value("logic")
     if not logic:
         compact = re.sub(r"\s+", "", text)
@@ -223,12 +230,15 @@ def parse_llm_json(text: str) -> dict[str, Any] | None:
 
 
 def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None:
+    global LLM_DISABLED_UNTIL
+    if time.time() < LLM_DISABLED_UNTIL:
+        return None
     api_key = os.getenv("AGUWHISPER_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
     base_url = os.getenv("AGUWHISPER_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
     model = os.getenv("AGUWHISPER_LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
-    timeout = int(os.getenv("AGUWHISPER_LLM_TIMEOUT", "6"))
+    timeout = int(os.getenv("AGUWHISPER_LLM_TIMEOUT", "3"))
     raw = payload.get("raw_content", "") if isinstance(payload, dict) else payload.raw_content
     prompt = (
         "你是A股私域投研信息整理助手。请从原始消息中抽取结构化关键信息，"
@@ -261,7 +271,10 @@ def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None
         choices = data.get("choices") or []
         if choices:
             content = choices[0].get("message", {}).get("content", "")
-    except (OSError, URLError, json.JSONDecodeError):
+    except HTTPError as exc:
+        if exc.code not in (404, 405):
+            LLM_DISABLED_UNTIL = time.time() + 300
+            return None
         responses_body = json.dumps(
             {
                 "model": model,
@@ -283,6 +296,7 @@ def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None
             with urlrequest.urlopen(responses_req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except (OSError, URLError, json.JSONDecodeError):
+            LLM_DISABLED_UNTIL = time.time() + 300
             return None
         content = data.get("output_text", "")
         if not content:
@@ -290,6 +304,9 @@ def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None
                 for item in output.get("content", []):
                     if item.get("type") in ("output_text", "text") and item.get("text"):
                         content += item["text"]
+    except (OSError, URLError, json.JSONDecodeError):
+        LLM_DISABLED_UNTIL = time.time() + 300
+        return None
     parsed = parse_llm_json(content)
     if not parsed:
         return None
@@ -310,10 +327,12 @@ def summarize_payload(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
     base = heuristic_summary(payload)
     ai = llm_summary(payload)
     if not ai:
+        base["stock_codes"] = stock_items_from_target(base["target"])
         return base
     merged = {**base, **{k: v for k, v in ai.items() if v}}
     if not merged.get("key_points"):
         merged["key_points"] = base["key_points"]
+    merged["stock_codes"] = stock_items_from_target(merged["target"])
     return merged
 
 
@@ -356,6 +375,7 @@ def init_db() -> None:
             recommendation_date text not null,
             recommender text not null,
             target text not null,
+            stock_codes text not null default '[]',
             logic text not null,
             raw_content text not null,
             institution text not null default '',
@@ -399,6 +419,10 @@ def init_db() -> None:
     if "key_points" not in existing_cols:
         con.execute("alter table rumors add column key_points text not null default '[]'")
         con.commit()
+    if "stock_codes" not in existing_cols:
+        con.execute("alter table rumors add column stock_codes text not null default '[]'")
+        con.commit()
+    backfill_rumor_stock_codes()
     user_cols = {row["name"] for row in con.execute("pragma table_info(users)").fetchall()}
     if "email" not in user_cols:
         con.execute("alter table users add column email text")
@@ -430,15 +454,16 @@ def seed_reference_data() -> None:
         con.execute(
             """
             insert into rumors
-            (submitter_name, recommendation_date, recommender, target, logic, raw_content, institution,
+            (submitter_name, recommendation_date, recommender, target, stock_codes, logic, raw_content, institution,
              key_points, ai_score, ai_tier, ai_reasons, created_at, source)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reference')
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reference')
             """,
             (
                 payload["submitter"],
                 payload["recommendation_date"],
                 payload["recommender"],
                 payload["target"],
+                json.dumps(stock_items_from_target(payload["target"]), ensure_ascii=False),
                 payload["logic"],
                 payload["raw_content"],
                 payload["institution"],
@@ -563,6 +588,7 @@ def public_rumor(row: sqlite3.Row, unlocked: bool) -> dict[str, Any]:
     return {
         "id": row["id"],
         "target": row["target"] if unlocked else mask_target(row["target"]),
+        "stock_codes": json.loads(row["stock_codes"] or "[]") if unlocked else [],
         "logic": row["logic"] if unlocked else "已锁定。分享同等价值消息或提升等级后查看。",
         "raw_content": row["raw_content"] if unlocked else "",
         "institution": row["institution"] if unlocked else "",
@@ -623,7 +649,15 @@ def active_feed_date() -> str:
     return rows[0]["d"] or today
 
 
+@lru_cache(maxsize=1)
 def code_lookup() -> dict[str, str]:
+    if STOCK_LOOKUP_CACHE.exists():
+        try:
+            cached = json.loads(STOCK_LOOKUP_CACHE.read_text(encoding="utf-8"))
+            if isinstance(cached, dict):
+                return {str(k): str(v) for k, v in cached.items()}
+        except (OSError, json.JSONDecodeError):
+            pass
     if not DAILY_PICKLE.exists():
         return {}
     try:
@@ -634,24 +668,124 @@ def code_lookup() -> dict[str, str]:
             name = str(row.iloc[0])
             if name and name != "nan":
                 lookup[name] = code
+        DATA_DIR.mkdir(exist_ok=True)
+        STOCK_LOOKUP_CACHE.write_text(json.dumps(lookup, ensure_ascii=False), encoding="utf-8")
         return lookup
     except Exception:
         return {}
 
 
-def find_code(target: str, lookup: dict[str, str]) -> tuple[str | None, str | None]:
-    for name in sorted(lookup, key=len, reverse=True):
-        if name and name in target:
-            return lookup[name], name
-    m = re.search(r"\b([036]\d{5})\b", target)
+def find_codes(target: str, lookup: dict[str, str]) -> list[tuple[str, str]]:
+    matches: list[tuple[int, int, str, str]] = []
+    for name in lookup:
+        if not name:
+            continue
+        start = target.find(name)
+        while start >= 0:
+            matches.append((start, start + len(name), lookup[name], name))
+            start = target.find(name, start + 1)
+
+    picked: list[tuple[str, str]] = []
+    seen_codes: set[str] = set()
+    occupied: list[tuple[int, int]] = []
+    for start, end, code, name in sorted(matches, key=lambda x: (x[0], -(x[1] - x[0]))):
+        if code in seen_codes or any(start < used_end and end > used_start for used_start, used_end in occupied):
+            continue
+        picked.append((code, name))
+        seen_codes.add(code)
+        occupied.append((start, end))
+
+    for m in re.finditer(r"\b([036]\d{5})\b", target):
+        code6 = m.group(1)
+        suffix = ".sh" if code6.startswith("6") else ".sz"
+        code = code6 + suffix
+        if code not in seen_codes:
+            picked.append((code, code6))
+            seen_codes.add(code)
+    return picked
+
+
+def avg_or_none(values: list[float | None]) -> float | None:
+    valid = [v for v in values if v is not None]
+    if not valid:
+        return None
+    return float(sum(valid) / len(valid))
+
+
+def normalize_stock_code(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    raw = raw.replace(" ", "")
+    m = re.match(r"^([036]\d{5})(?:\.(sh|sz))?$", raw)
     if not m:
-        return None, None
-    suffix = ".sh" if m.group(1).startswith("6") else ".sz"
-    return m.group(1) + suffix, m.group(1)
+        return ""
+    code6 = m.group(1)
+    suffix = ".sh" if code6.startswith("6") else ".sz"
+    return code6 + suffix
+
+
+def stock_items_from_target(target: str, lookup: dict[str, str] | None = None) -> list[dict[str, str]]:
+    lookup = lookup if lookup is not None else code_lookup()
+    return [{"name": name, "code": code} for code, name in find_codes(target, lookup)]
+
+
+def stock_items_from_payload(target: str, raw_stock_codes: str | None) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if raw_stock_codes:
+        try:
+            parsed = json.loads(raw_stock_codes)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            seen: set[tuple[str, str]] = set()
+            for item in parsed[:20]:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()[:40]
+                code = normalize_stock_code(str(item.get("code") or ""))
+                if not name and not code:
+                    continue
+                key = (name, code)
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append({"name": name or code, "code": code})
+    if items:
+        return items
+    return stock_items_from_target(target)
+
+
+def stock_items_for_backtest(row: sqlite3.Row, lookup: dict[str, str]) -> list[dict[str, str]]:
+    try:
+        raw_stock_codes = row["stock_codes"]
+    except (KeyError, IndexError):
+        raw_stock_codes = ""
+    items = stock_items_from_payload(row["target"], raw_stock_codes)
+    if items:
+        return items
+    return stock_items_from_target(row["target"], lookup)
+
+
+def backfill_rumor_stock_codes() -> None:
+    try:
+        rows = query("select id, target, stock_codes from rumors where stock_codes = '[]' or stock_codes = ''")
+    except sqlite3.OperationalError:
+        return
+    if not rows:
+        return
+    lookup = code_lookup()
+    con = db()
+    for row in rows:
+        items = stock_items_from_target(row["target"], lookup)
+        if items:
+            con.execute("update rumors set stock_codes = ? where id = ?", (json.dumps(items, ensure_ascii=False), row["id"]))
+    con.commit()
+    con.close()
 
 
 def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
-    if not RAW_DAILY.exists() and not DAILY_PICKLE.exists():
+    if not RAW_DAILY.exists():
         return 0
     if force:
         base_sql = "select * from rumors order by recommendation_date desc"
@@ -664,92 +798,133 @@ def refresh_backtests(limit: int | None = None, force: bool = False) -> int:
         return 0
     try:
         lookup = code_lookup()
-        mapped = {row["id"]: find_code(row["target"], lookup) for row in rows}
-        codes = sorted({code for code, _ in mapped.values() if code})
-        if RAW_DAILY.exists() and codes:
+        mapped = {row["id"]: stock_items_for_backtest(row, lookup) for row in rows}
+        codes = sorted({item["code"] for stocks in mapped.values() for item in stocks if item["code"]})
+        if codes:
             raw = pd.read_parquet(RAW_DAILY, columns=["code", "date", "open", "high", "low", "close"])
             raw = raw[raw["code"].isin(codes)].copy()
             raw["date"] = pd.to_datetime(raw["date"].astype(str))
             raw = raw[raw["date"].le(END_DATE)].sort_values(["code", "date"])
             bars_by_code = {code: g.set_index("date") for code, g in raw.groupby("code", sort=False)}
-            source_details = "T+1开盘买入，未复权"
         else:
-            bars = pd.read_pickle(DAILY_PICKLE)
-            # pickle 只有 closew，无 open，降级为原逻辑
-            close = bars["closew"].copy()
-            close.index = pd.to_datetime(close.index)
-            close = close[close.index <= END_DATE]
-            bars_by_code = {code: close[[code]].rename(columns={code: "close"}) for code in codes if code in close.columns}
-            source_details = "前复权收盘价（无开盘价数据）"
+            bars_by_code = {}
+        source_details = "T+1开盘买入，未复权"
     except Exception:
         return 0
     con = db()
     done = 0
+    def calc_stock_metrics(df: pd.DataFrame, rec_date: pd.Timestamp) -> dict[str, Any]:
+        future_df = df[df.index > rec_date]
+        result: dict[str, Any] = {
+            "start_date": None,
+            "price_start": None,
+            "ret_t1_1": None,
+            "ret_t1_5": None,
+            "ret_t1_20": None,
+            "max_drawdown_20": None,
+            "status": "pending",
+            "details": "推荐日后暂无足够行情",
+        }
+        if len(future_df) < 1:
+            return result
+
+        t1_row = future_df.iloc[0]
+        result["start_date"] = future_df.index[0].strftime("%Y-%m-%d")
+        if float(t1_row.get("high", 0)) == float(t1_row.get("low", 1)):
+            result["status"] = "limit_up_or_down"
+            result["details"] = "T+1一字板，跳过开盘买入信号"
+            return result
+
+        buy_price = float(t1_row["open"])
+        if buy_price <= 0:
+            result["details"] = "T+1开盘价无效"
+            return result
+
+        result["price_start"] = buy_price
+        open_ser = df["open"].dropna()
+        future_open = open_ser[open_ser.index > rec_date]
+
+        def ret_t1_at(n: int) -> float | None:
+            # 持有N日后下一交易日开盘卖出，即 future_open.iloc[n]
+            if len(future_open) <= n:
+                return None
+            return float(future_open.iloc[n] / buy_price - 1)
+
+        result["ret_t1_1"] = ret_t1_at(1)
+        result["ret_t1_5"] = ret_t1_at(5)
+        result["ret_t1_20"] = ret_t1_at(20)
+        close_t1_20 = df["close"].dropna()
+        close_t1_20 = close_t1_20[close_t1_20.index > rec_date].iloc[:20]
+        if len(close_t1_20) > 0:
+            result["max_drawdown_20"] = float((close_t1_20.min() - buy_price) / buy_price)
+        result["status"] = "ok"
+        result["details"] = source_details
+        return result
+
     for row in rows:
-        code, name = mapped[row["id"]]
-        if not code or code not in bars_by_code:
+        stocks = mapped[row["id"]]
+        if not stocks:
             con.execute(
                 "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,max_drawdown_20,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (row["id"], None, name, None, None, None, None, None, None, None, None, None, None, None, "missing_code", "未匹配到本地行情代码"),
+                (row["id"], None, None, None, None, None, None, None, None, None, None, None, None, None, "missing_code", "未匹配到本地行情代码"),
             )
             done += 1
             continue
 
-        df = bars_by_code[code]
         rec_date = pd.Timestamp(row["recommendation_date"])
+        metrics = []
+        missing = []
+        for stock in stocks:
+            code = stock["code"]
+            name = stock["name"]
+            if not code:
+                missing.append(name)
+                continue
+            df = bars_by_code.get(code)
+            if df is None:
+                missing.append(name)
+                continue
+            item = calc_stock_metrics(df, rec_date)
+            item["code"] = code
+            item["name"] = name
+            metrics.append(item)
 
-        # 旧逻辑（close-based）用于向后兼容
-        close_ser = df["close"].dropna() if "close" in df.columns else pd.Series(dtype=float)
-        future_close = close_ser[close_ser.index >= rec_date]
-
-        def ret_at_close(n: int) -> float | None:
-            if len(future_close) <= n or float(future_close.iloc[0]) == 0:
-                return None
-            return float(future_close.iloc[n] / future_close.iloc[0] - 1)
-
-        max_ret = None
-        if len(future_close) >= 2 and float(future_close.iloc[0]) != 0:
-            window = future_close.iloc[: min(len(future_close), 61)]
-            max_ret = float(window.max() / future_close.iloc[0] - 1)
-
-        # T+1 逻辑：找推荐日之后第一个交易日
-        future_df = df[df.index > rec_date]
-        ret_t1_1 = ret_t1_5 = ret_t1_20 = None
         signal_value = None
+        ok_metrics = [m for m in metrics if m["status"] == "ok"]
+        valid_count = len(ok_metrics)
+        start_dates = sorted({m["start_date"] for m in ok_metrics if m["start_date"]})
+        start_date = start_dates[0] if len(start_dates) == 1 else ",".join(start_dates[:3]) if start_dates else None
+        price_start = avg_or_none([m["price_start"] for m in ok_metrics])
+        ret_t1_1 = avg_or_none([m["ret_t1_1"] for m in ok_metrics])
+        ret_t1_5 = avg_or_none([m["ret_t1_5"] for m in ok_metrics])
+        ret_t1_20 = avg_or_none([m["ret_t1_20"] for m in ok_metrics])
+        max_drawdown_20 = avg_or_none([m["max_drawdown_20"] for m in ok_metrics])
 
-        if "open" in df.columns and len(future_df) >= 1:
-            t1_row = future_df.iloc[0]
-            # 1字板过滤：T+1当天最高价 == 最低价
-            if float(t1_row.get("high", 0)) != float(t1_row.get("low", 1)):
-                buy_price = float(t1_row["open"])
-                if buy_price > 0:
-                    open_ser = df["open"].dropna()
-                    future_open = open_ser[open_ser.index > rec_date]
+        if valid_count == len(stocks):
+            status = "ok"
+        elif valid_count > 0:
+            status = "partial"
+        elif missing and len(missing) == len(stocks):
+            status = "missing_code"
+        elif any(m["status"] == "limit_up_or_down" for m in metrics):
+            status = "limit_up_or_down"
+        else:
+            status = "pending"
 
-                    def ret_t1_at(n: int) -> float | None:
-                        # 持有N日后下一交易日开盘卖出，即 future_open.iloc[n]
-                        if len(future_open) <= n:
-                            return None
-                        return float(future_open.iloc[n] / buy_price - 1)
-
-                    ret_t1_1  = ret_t1_at(1)
-                    ret_t1_5  = ret_t1_at(5)
-                    ret_t1_20 = ret_t1_at(20)
-                    # 20日内最大回撤（相对买入价）
-                    close_t1_20 = df["close"].dropna()
-                    close_t1_20 = close_t1_20[close_t1_20.index > rec_date].iloc[:20]
-                    if len(close_t1_20) > 0:
-                        max_drawdown_20 = float((close_t1_20.min() - buy_price) / buy_price)
-
-        price_start = float(future_close.iloc[0]) if len(future_close) >= 1 else None
-        start_date = future_close.index[0].strftime("%Y-%m-%d") if len(future_close) >= 1 else None
-        status = "ok" if price_start else "pending"
-        details = source_details if price_start else "推荐日后暂无足够行情"
+        skipped_limit = sum(1 for m in metrics if m["status"] == "limit_up_or_down")
+        pending_count = sum(1 for m in metrics if m["status"] == "pending")
+        details = f"{source_details}；按{len(stocks)}只股票平均；有效{valid_count}只"
+        if missing:
+            details += f"；缺行情{len(missing)}只"
+        if skipped_limit:
+            details += f"；一字板跳过{skipped_limit}只"
+        if pending_count:
+            details += f"；待行情{pending_count}只"
 
         con.execute(
             "insert or replace into backtests (rumor_id,code,name,start_date,price_start,ret_5,ret_20,ret_60,max_ret_60,ret_t1_1,ret_t1_5,ret_t1_20,signal_value,max_drawdown_20,status,details) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (row["id"], code, name, start_date, price_start,
-             ret_at_close(5), ret_at_close(20), ret_at_close(60), max_ret,
+            (row["id"], ",".join(stock["code"] for stock in stocks if stock["code"]), ",".join(stock["name"] for stock in stocks), start_date, price_start,
+             None, None, None, None,
              ret_t1_1, ret_t1_5, ret_t1_20, signal_value, max_drawdown_20,
              status, details),
         )
@@ -1053,8 +1228,8 @@ def list_rumors(response: Response, agu_session: str | None = Cookie(default=Non
     where = []
     args: list[Any] = []
     if q:
-        where.append("(target like ? or logic like ? or raw_content like ? or institution like ?)")
-        args.extend([f"%{q}%"] * 4)
+        where.append("(target like ? or stock_codes like ? or logic like ? or raw_content like ? or institution like ?)")
+        args.extend([f"%{q}%"] * 5)
     if tier:
         where.append("ai_tier = ?")
         args.append(tier)
@@ -1115,6 +1290,7 @@ def submit_rumor(payload: RumorPayload, response: Response, agu_session: str | N
     summary = summarize_payload(payload)
     clean = {
         "target": payload.target.strip() or summary["target"],
+        "stock_codes": json.dumps(stock_items_from_payload(payload.target.strip() or summary["target"], payload.stock_codes), ensure_ascii=False),
         "logic": payload.logic.strip() or summary["logic"],
         "raw_content": payload.raw_content.strip(),
         "institution": payload.institution.strip() or summary["institution"],
@@ -1128,9 +1304,9 @@ def submit_rumor(payload: RumorPayload, response: Response, agu_session: str | N
     execute(
         """
         insert into rumors
-        (submitter_id, submitter_name, recommendation_date, recommender, target, logic, raw_content,
+        (submitter_id, submitter_name, recommendation_date, recommender, target, stock_codes, logic, raw_content,
          institution, key_points, ai_score, ai_tier, ai_reasons, created_at, source)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'community')
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'community')
         """,
         (
             user["id"],
@@ -1138,6 +1314,7 @@ def submit_rumor(payload: RumorPayload, response: Response, agu_session: str | N
             rec_date,
             clean["recommender"],
             clean["target"],
+            clean["stock_codes"],
             clean["logic"],
             clean["raw_content"],
             clean["institution"],

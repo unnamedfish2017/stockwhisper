@@ -32,3 +32,9 @@ build/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# 本地补数据脚本（含日志，勿提交）
+scripts/import_material.py
+scripts/import_log.json
+scripts/seed_fake_users.py
+scripts/fake_users_manifest.json

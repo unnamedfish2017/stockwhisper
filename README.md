@@ -24,20 +24,20 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8289
 
 🌐 **https://stockwhisper.doujie.ccwu.cc/**
 
-## 数据源（均可选，缺失时自动降级）
+## 数据源
 
 | 路径 | 用途 |
 |------|------|
 | `data/stockwhisper.db` | SQLite 运行时数据库，启动自动创建 |
 | `../私有信息/info_collection.db` | 私有种子数据，首次启动时导入 |
-| `/home/vscode/workspace/data/store/rsync/tonglian_data_daily/` | A 股日线行情，用于回测 |
+| `/home/vscode/workspace/data/store/rsync/tonglian_data_daily/tonglian_stock_day_n.parquet` | A 股未复权日线行情，用于 T+1 开盘买入回测 |
 
 ## 功能
 
 - 邮箱验证码注册，Cookie 会话，游客模式
 - AI 价值评分（1-100）+ S/A/B/C 分级
 - 投递消息自动解锁同等价值消息
-- 5/20/60 日回测 + 用户声誉/经验值/等级体系
+- T+1 开盘买入回测，多股票推荐按平均表现计分 + 用户声誉/经验值/等级体系
 - 无限滚动情报流，搜索/筛选
 
 ## 环境变量

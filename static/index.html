@@ -71,8 +71,13 @@
               <textarea name="raw_content" placeholder="粘贴完整消息，越具体越容易获得高评分" required></textarea>
             </div>
             <div class="form-row">
-              <label>标的</label>
-              <input name="target" placeholder="例如：新相微、华灿光电" required />
+              <div class="field-title">
+                <label>推荐标的代码</label>
+                <button id="addStockRow" type="button" class="ghost">新增标的</button>
+              </div>
+              <div id="stockRows" class="stock-rows"></div>
+              <input name="target" type="hidden" />
+              <input name="stock_codes" type="hidden" value="[]" />
             </div>
             <div class="form-row">
               <label>核心逻辑</label>
@@ -104,7 +109,7 @@
           <div class="section-head">
             <div>
               <h2>历史回测</h2>
-              <p>基于本地 A 股前复权日线，展示推荐后真实表现。</p>
+              <p>基于本地 A 股日线，按 T+1 开盘买入考察推荐后真实表现；多股票取平均。</p>
             </div>
             <button id="refreshBacktest">重新计算</button>
           </div>

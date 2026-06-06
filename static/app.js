@@ -20,6 +20,17 @@ function pct(v) {
   return `<span class="${n >= 0 ? "pos" : "neg"}">${n.toFixed(1)}%</span>`;
 }
 
+function todayInputValue() {
+  const d = new Date();
+  const tzOffset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+}
+
+function setDefaultRecommendationDate() {
+  const input = $("#submitForm")?.elements.recommendation_date;
+  if (input && !input.value) input.value = todayInputValue();
+}
+
 function renderAuthButtons() {
   const loggedIn = !!state.user && !state.user.is_guest;
   $("#loginOpen").style.display = loggedIn ? "none" : "";
@@ -173,12 +184,84 @@ async function openRumor(id) {
   const msg = [
     data.item.raw_content,
     "",
-    bt ? `回测：5日 ${strip(pct(bt.ret_5))} / 20日 ${strip(pct(bt.ret_20))} / 60日 ${strip(pct(bt.ret_60))}` : "回测：暂无",
+    bt ? `回测：T+1持1日 ${strip(pct(bt.ret_t1_1))} / 持5日 ${strip(pct(bt.ret_t1_5))} / 持20日 ${strip(pct(bt.ret_t1_20))} / 信号价值 ${bt.signal_value != null ? bt.signal_value.toFixed(1) : "-"}` : "回测：暂无",
   ].join("\n");
   alert(msg);
 }
 
 function strip(html) { return html.replace(/<[^>]*>/g, ""); }
+
+function esc(value) {
+  return String(value || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+function splitTargetNames(target) {
+  return [...new Set(String(target || "")
+    .split(/[、,，/;；\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 20))];
+}
+
+function renderStockRows(items) {
+  const rows = (items || []).filter((item) => item && (item.name || item.code));
+  const wrap = $("#stockRows");
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="stock-empty">暂无识别标的，可点击 AI 提炼或手动新增。</div>`;
+    syncStockCodesField();
+    return;
+  }
+  wrap.innerHTML = rows.map((item, idx) => `
+    <div class="stock-row">
+      <input class="stock-name-input" value="${esc(item.name || "")}" placeholder="中文名称" />
+      <input class="stock-code-input" value="${esc(item.code || "")}" placeholder="例如 600000.sh，可留空" />
+      <div class="stock-row-actions">
+        <button type="button" class="ghost stock-add" title="新增标的">+</button>
+        <button type="button" class="ghost stock-remove" title="删除标的" ${rows.length === 1 && idx === 0 ? "disabled" : ""}>-</button>
+      </div>
+    </div>
+  `).join("");
+  syncStockCodesField();
+}
+
+function addStockRow(afterRow = null) {
+  const rows = stockRowItems(true);
+  if (!rows.length || !afterRow) {
+    rows.push({ name: "", code: "" });
+  } else {
+    const idx = $$("#stockRows .stock-row").indexOf(afterRow);
+    rows.splice(idx + 1, 0, { name: "", code: "" });
+  }
+  renderStockRows(rows);
+  const inputs = $$("#stockRows .stock-name-input");
+  inputs[Math.min(inputs.length - 1, rows.length - 1)]?.focus();
+}
+
+function stockRowItems(keepEmpty = false) {
+  const items = $$("#stockRows .stock-row").map((row) => ({
+    name: row.querySelector(".stock-name-input").value.trim(),
+    code: row.querySelector(".stock-code-input").value.trim(),
+  }));
+  return keepEmpty ? items : items.filter((item) => item.name || item.code);
+}
+
+function currentStockItems() {
+  return stockRowItems(false);
+}
+
+function syncStockCodesField() {
+  const form = $("#submitForm");
+  if (!form || !form.elements.stock_codes) return;
+  const items = currentStockItems();
+  form.elements.stock_codes.value = JSON.stringify(items);
+  form.elements.target.value = items.map((item) => item.name || item.code).filter(Boolean).join("、");
+}
 
 async function unlockRumor(id) {
   try {
@@ -192,8 +275,14 @@ async function unlockRumor(id) {
 
 async function submitRumor(event) {
   event.preventDefault();
+  syncStockCodesField();
   const payload = Object.fromEntries(new FormData(event.target).entries());
   const result = $("#submitResult");
+  if (!payload.target) {
+    result.classList.add("show");
+    result.innerHTML = `<p class="neg">请至少填写一个推荐标的。</p>`;
+    return;
+  }
   try {
     const data = await api("/api/rumors", { method: "POST", body: JSON.stringify(payload) });
     result.classList.add("show");
@@ -204,6 +293,8 @@ async function submitRumor(event) {
       <p>${data.unlocked ? `已解锁：${data.unlocked.target}` : "暂无可匹配解锁消息"}</p>
     `;
     event.target.reset();
+    setDefaultRecommendationDate();
+    renderStockRows([]);
     await loadMe();
     await loadRumors();
   } catch (err) {
@@ -214,11 +305,21 @@ async function submitRumor(event) {
 
 async function summarizeRumor() {
   const form = $("#submitForm");
+  const btn = $("#summarizeBtn");
   const payload = Object.fromEntries(new FormData(form).entries());
   const result = $("#submitResult");
+  if (!payload.raw_content || payload.raw_content.trim().length < 10) {
+    result.classList.add("show");
+    result.innerHTML = `<p class="neg">请先粘贴至少 10 个字的原始内容。</p>`;
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "提炼中...";
+  result.classList.add("show");
+  result.innerHTML = `<p>正在提炼标的和股票代码...</p>`;
   try {
     const data = await api("/api/rumors/summarize", { method: "POST", body: JSON.stringify(payload) });
-    form.elements.target.value = form.elements.target.value || data.target || "";
+    renderStockRows(data.stock_codes && data.stock_codes.length ? data.stock_codes : splitTargetNames(data.target).map((name) => ({ name, code: "" })));
     form.elements.logic.value = form.elements.logic.value || data.logic || "";
     form.elements.institution.value = form.elements.institution.value || data.institution || "";
     form.elements.recommender.value = form.elements.recommender.value || data.recommender || "";
@@ -230,6 +331,9 @@ async function summarizeRumor() {
   } catch (err) {
     result.classList.add("show");
     result.innerHTML = `<p class="neg">${err.message}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "AI 提炼";
   }
 }
 
@@ -345,6 +449,20 @@ function wire() {
   $("#refreshFeed").addEventListener("click", loadDailyStats);
   $("#submitForm").addEventListener("submit", submitRumor);
   $("#summarizeBtn").addEventListener("click", summarizeRumor);
+  $("#addStockRow").addEventListener("click", () => addStockRow());
+  $("#stockRows").addEventListener("input", (e) => {
+    if (e.target.closest(".stock-code-input") || e.target.closest(".stock-name-input")) syncStockCodesField();
+  });
+  $("#stockRows").addEventListener("click", (e) => {
+    const row = e.target.closest(".stock-row");
+    if (e.target.closest(".stock-add")) addStockRow(row);
+    if (e.target.closest(".stock-remove") && row) {
+      const rows = stockRowItems(true);
+      const idx = $$("#stockRows .stock-row").indexOf(row);
+      rows.splice(idx, 1);
+      renderStockRows(rows);
+    }
+  });
   $("#refreshBacktest").addEventListener("click", async () => { await api("/api/backtests/refresh", { method: "POST" }); loadBacktests(); });
 
   // 登录/注册弹窗
@@ -372,4 +490,6 @@ function debounce(fn, wait) {
 }
 
 wire();
+setDefaultRecommendationDate();
+renderStockRows([]);
 loadMe().then(loadDailyStats);
