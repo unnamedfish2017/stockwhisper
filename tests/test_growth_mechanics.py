@@ -739,6 +739,23 @@ def test_recent_backtest_showcase_uses_recent_backtested_dates(monkeypatch, tmp_
         assert showcase["items"][0]["signal_value"] == 91
 
 
+def test_recent_backtest_showcase_marks_watchlist_matches(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "showcase_watch", "showcase_watch@example.com")
+        rumor_id = seed_rumor(tier="A", score=82, target="自选历史强信号", code="600000.sh", date="2026-06-06")
+        seed_backtest(rumor_id, signal_value=91, ret_1=0.05, ret_5=0.09, ret_20=0.13)
+
+        before = client.get("/api/community-insight").json()["recent_backtest_showcase"]["items"][0]["rumor"]
+        assert before["watched"] is False
+
+        added = client.post("/api/watchlist", json={"code": "600000.sh", "name": "自选历史强信号"})
+        assert added.status_code == 200, added.text
+
+        after = client.get("/api/community-insight").json()["recent_backtest_showcase"]["items"][0]["rumor"]
+        assert after["id"] == rumor_id
+        assert after["watched"] is True
+
+
 def test_community_insight_exposes_actionable_opportunity_summary(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         register(client, "opportunity", "opportunity@example.com")

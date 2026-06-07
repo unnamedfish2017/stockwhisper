@@ -3661,8 +3661,9 @@ def recent_backtest_showcase(day: str, user: sqlite3.Row, limit: int = 10) -> di
     if not rows:
         return {"headline": "近3个交易日高分信号", "items": [], "summary": "等待回测样本沉淀"}
     items = []
+    watched_codes = watched_codes_for_user(user["id"])
     for row in rows:
-        item = public_rumor(row, True, None, None, user["id"], user, slim=True)
+        item = public_rumor(row, True, None, watched_codes, user["id"], user, slim=True)
         items.append(
             {
                 "rumor": item,
