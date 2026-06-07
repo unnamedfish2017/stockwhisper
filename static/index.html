@@ -52,11 +52,23 @@
             <div><h2>情报流</h2></div>
             <button id="refreshFeed">刷新</button>
           </div>
-          <div id="recentBacktestShowcase" class="backtest-showcase" style="margin-bottom:14px"></div>
+          <section class="feed-module">
+            <div class="module-head">
+              <h3>近3个交易日高收益信号</h3>
+              <span>最多 10 条</span>
+            </div>
+            <div id="recentBacktestShowcase" class="backtest-showcase"></div>
+          </section>
+          <section class="feed-module">
+            <div class="module-head">
+              <h3>当日情报流信号</h3>
+              <span>仅展示已匹配股票代码</span>
+            </div>
+            <div id="rumorGrid" class="grid"></div>
+            <div id="feedSentinel" class="feed-sentinel"></div>
+          </section>
           <div id="dailyStats" class="tier-stats"></div>
           <div id="tierPanel" class="tier-panel"></div>
-          <div id="rumorGrid" class="grid"></div>
-          <div id="feedSentinel" class="feed-sentinel"></div>
         </section>
 
         <section class="view" id="submitView">
@@ -202,7 +214,7 @@
         <span id="detailRightsMark" class="rights-mark" aria-hidden="true"></span>
         <header>
           <div>
-            <span id="detailTier" class="badge">S90</span>
+            <span id="detailTier" class="badge">S</span>
             <h3 id="detailTarget">情报详情</h3>
           </div>
           <button id="detailClose" class="ghost">关闭</button>

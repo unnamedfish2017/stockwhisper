@@ -170,7 +170,8 @@ async function loadRumors(reset = true) {
     const date = encodeURIComponent(state.feedDate || "");
     const watch = state.watchOnly ? 1 : 0;
     const followed = state.followedOnly ? 1 : 0;
-    const data = await api(`/api/rumors?q=${q}&tier=${tier}&date=${date}&watch=${watch}&followed=${followed}&offset=${state.feedOffset}&limit=24`);
+    const section = "today";
+    const data = await api(`/api/rumors?q=${q}&tier=${tier}&date=${date}&watch=${watch}&followed=${followed}&section=${section}&offset=${state.feedOffset}&limit=24`);
     state.rightsEnvelope = data.rights_envelope || state.rightsEnvelope;
     grid.insertAdjacentHTML("beforeend", data.items.map(renderCard).join(""));
     state.feedOffset += data.items.length;
@@ -720,22 +721,20 @@ function renderDimensionScores(scores) {
 function renderRecentBacktestShowcase(showcase) {
   const root = $("#recentBacktestShowcase");
   if (!root) return;
-  const items = showcase.items || [];
+  const items = (showcase.items || []).slice(0, 10);
   root.innerHTML = `
-    <div class="showcase-head" style="margin-bottom:8px">
-      <strong>近3个交易日高收益信号</strong>
-      <small style="color:var(--muted);font-size:12px">${(showcase.dates || []).map(esc).join(" / ")}</small>
-    </div>
+    ${(showcase.dates || []).length ? `<div class="showcase-dates">${(showcase.dates || []).map(esc).join(" / ")}</div>` : ""}
     ${items.map((entry) => {
       const item = entry.rumor || {};
       const ret = entry.ret_t1_1;
       const retStr = ret != null ? `${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(1)}%` : "-";
       const retClass = ret != null ? (ret >= 0 ? "pos" : "neg") : "";
+      const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean).join(" / ") : "";
       return `
         <button type="button" class="showcase-item" data-id="${item.id}">
-          <span class="badge">${esc(item.ai_tier || "")}${item.ai_score || ""}</span>
+          <span class="badge">${esc(item.ai_tier || "")}</span>
           <div class="showcase-item-body">
-            <strong>${esc(item.target || "历史信号")}</strong>
+            <strong>${esc(item.target || "历史信号")}${codes ? `<em class="stock-code">${esc(codes)}</em>` : ""}</strong>
             <span>${esc(item.logic || "")}</span>
           </div>
           <span class="showcase-ret ${retClass}">${retStr}</span>
@@ -744,7 +743,7 @@ function renderRecentBacktestShowcase(showcase) {
       `;
     }).join("") || `<p class="empty">暂无近3个交易日回测样本。</p>`}
   `;
-  $$("#recentBacktestShowcase .showcase-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id)));
+  $$("#recentBacktestShowcase .showcase-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id).catch((err) => alert(err.message || "详情加载失败"))));
 }
 
 function renderTodaySignalBoard(board) {
@@ -801,7 +800,7 @@ function renderHighlight(item) {
     <article class="highlight-card ${item.hidden ? "locked" : ""}">
       <div>
         <strong>${esc(item.target)}</strong>
-        <span class="badge">${esc(item.ai_tier)}${item.ai_score}</span>
+        <span class="badge">${esc(item.ai_tier)}</span>
       </div>
       <p>${esc(item.logic)}</p>
       ${renderDimensionScores(item.dimension_scores)}
@@ -955,12 +954,15 @@ function renderCard(item) {
   const actionBtn = item.unlocked
     ? `<button class="open-btn card-row-btn" data-id="${item.id}">详情</button>`
     : `<button class="unlock-btn card-row-btn ghost" data-id="${item.id}">解锁</button>`;
+  const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean) : [];
+  const codeLabel = codes.length ? codes.join(" / ") : "";
   return `
     <article class="card ${locked}" data-rights-fp="${esc(rights.fingerprint || "")}" data-rights-scope="${esc(rights.scope || "rumor-content")}">
       <span class="rights-mark" aria-hidden="true">${esc(rights.mark || "")}:${esc(rights.fingerprint || "")}</span>
       <div class="card-head">
-        <div class="badge">${esc(item.ai_tier)}${item.ai_score}</div>
+        <div class="badge">${esc(item.ai_tier)}</div>
         <div class="target">${esc(item.target)}</div>
+        ${codeLabel ? `<span class="stock-code">${esc(codeLabel)}</span>` : ""}
         ${retLabel}
       </div>
       <p class="logic">${esc(item.logic)}</p>
@@ -1003,30 +1005,43 @@ function runUnlockPathAction(btn) {
 }
 
 async function openRumor(id) {
-  const data = await api(`/api/rumors/${id}`);
-  const bt = data.backtest;
-  const item = data.item;
-  const rights = item.rights || {};
-  state.activeRumorId = item.id;
-  $("#detailRightsMark").textContent = rights.mark || "";
-  $("#detailTier").textContent = `${item.ai_tier}${item.ai_score}`;
-  $("#detailTarget").textContent = item.target;
-  $("#detailMeta").innerHTML = `
-    <span>${esc(item.recommendation_date)}</span>
-    ${item.institution ? `<span>${esc(item.institution)}</span>` : ""}
-    <span>${esc(item.submitter_name || "社区信息源")}</span>
-  `;
-  $("#detailBacktest").innerHTML = bt && bt.ret_t1_1 != null ? `
-    <span class="outcome-pill ${esc(bt.outcome?.state || "pending")}">${esc(bt.outcome?.label || "待验证")}</span>
-    <span>T+1持1日 <strong class="${bt.ret_t1_1 >= 0 ? "pos" : "neg"}">${pct(bt.ret_t1_1)}</strong></span>
-    ${bt.ret_t1_5 != null ? `<span>T+1持5日 <strong>${pct(bt.ret_t1_5)}</strong></span>` : ""}
-    ${bt.ret_t1_20 != null ? `<span>T+1持20日 <strong>${pct(bt.ret_t1_20)}</strong></span>` : ""}
-    <small>${esc(bt.outcome?.summary || "")}</small>
-  ` : "";
-  $("#detailLogic").textContent = item.logic || "";
-  $("#detailPoints").innerHTML = (item.key_points || []).map((p) => `<span>${esc(p)}</span>`).join("");
-  renderDetailDiscussion(item.discussion || {}, data.comments || []);
-  $("#rumorDialog").showModal();
+  const dialog = $("#rumorDialog");
+  if (!dialog.open) dialog.showModal();
+  $("#detailTarget").textContent = "加载中...";
+  $("#detailMeta").innerHTML = "";
+  $("#detailBacktest").innerHTML = "";
+  $("#detailLogic").textContent = "";
+  $("#detailPoints").innerHTML = "";
+  try {
+    const data = await api(`/api/rumors/${id}`);
+    const bt = data.backtest;
+    const item = data.item;
+    const rights = item.rights || {};
+    const codes = (item.stock_codes || []).map((stock) => stock.code).filter(Boolean).join(" / ");
+    state.activeRumorId = item.id;
+    $("#detailRightsMark").textContent = rights.mark || "";
+    $("#detailTier").textContent = item.ai_tier || "";
+    $("#detailTarget").textContent = item.target;
+    $("#detailMeta").innerHTML = `
+      <span>${esc(item.recommendation_date)}</span>
+      ${codes ? `<span>${esc(codes)}</span>` : ""}
+      ${item.institution ? `<span>${esc(item.institution)}</span>` : ""}
+      <span>${esc(item.submitter_name || "社区信息源")}</span>
+    `;
+    $("#detailBacktest").innerHTML = bt && bt.ret_t1_1 != null ? `
+      <span class="outcome-pill ${esc(bt.outcome?.state || "pending")}">${esc(bt.outcome?.label || "待验证")}</span>
+      <span>T+1持1日 <strong class="${bt.ret_t1_1 >= 0 ? "pos" : "neg"}">${pct(bt.ret_t1_1)}</strong></span>
+      ${bt.ret_t1_5 != null ? `<span>T+1持5日 <strong>${pct(bt.ret_t1_5)}</strong></span>` : ""}
+      ${bt.ret_t1_20 != null ? `<span>T+1持20日 <strong>${pct(bt.ret_t1_20)}</strong></span>` : ""}
+      <small>${esc(bt.outcome?.summary || "")}</small>
+    ` : "";
+    $("#detailLogic").textContent = item.logic || "";
+    $("#detailPoints").innerHTML = (item.key_points || []).map((p) => `<span>${esc(p)}</span>`).join("");
+    renderDetailDiscussion(item.discussion || {}, data.comments || []);
+  } catch (err) {
+    $("#detailTarget").textContent = "详情加载失败";
+    $("#detailLogic").textContent = err.message || "请求失败";
+  }
 }
 
 function renderDecisionBrief(brief) {
@@ -1817,7 +1832,7 @@ function renderProviderProfile(data) {
     `;
     $("#providerRecent").innerHTML = (data.recent || []).map((item) => `
       <article>
-        <div><strong>${esc(item.target)}</strong><span class="badge">${esc(item.ai_tier)}${item.ai_score}</span></div>
+        <div><strong>${esc(item.target)}</strong><span class="badge">${esc(item.ai_tier)}</span></div>
         <p>${esc(item.logic)}</p>
         <footer><span>${esc(item.recommendation_date)}</span><span>${esc(item.outcome?.label || "待验证")}</span><span>讨论 ${item.discussion?.comments || 0}</span></footer>
       </article>
@@ -2003,7 +2018,7 @@ function wire() {
     const pathAction = e.target.closest(".unlock-path-action");
     if (pathAction) return runUnlockPathAction(pathAction);
     const open = e.target.closest(".open-btn");
-    if (open) return openRumor(open.dataset.id);
+    if (open) return openRumor(open.dataset.id).catch((err) => alert(err.message || "详情加载失败"));
     const unlock = e.target.closest(".unlock-btn");
     if (unlock) return unlockRumor(unlock.dataset.id);
   });
@@ -2059,11 +2074,11 @@ function wire() {
     const btn = e.target.closest(".reaction-btn");
     if (btn) reactToActiveRumor(btn.dataset.reaction);
   });
-  $("#detailWatchTargets").addEventListener("click", (e) => {
+  $("#detailWatchTargets")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".detail-watch-btn");
     if (btn) addWatch({ code: btn.dataset.code, name: btn.dataset.name });
   });
-  $("#detailModeration").addEventListener("click", (e) => {
+  $("#detailModeration")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".report-btn");
     if (btn) reportActiveRumor(btn.dataset.reason);
   });

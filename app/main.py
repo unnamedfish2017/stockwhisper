@@ -2740,6 +2740,7 @@ def public_rumor(
             "id": row["id"],
             "submitter_name": row["submitter_name"],
             "target": row["target"] if unlocked else mask_target(row["target"]),
+            "stock_codes": stocks if unlocked else [],
             "logic": row["logic"] if unlocked else "已锁定。分享同等价值消息或提升等级后查看。",
             "recommendation_date": row["recommendation_date"],
             "ai_score": row["ai_score"],
@@ -2893,6 +2894,10 @@ def mask_target(target: str) -> str:
 def user_unlocked_ids(user: sqlite3.Row) -> set[int]:
     rows = query("select rumor_id from unlocks where user_id = ?", (user["id"],))
     return {r["rumor_id"] for r in rows}
+
+
+def is_historic_rumor(row: sqlite3.Row) -> bool:
+    return str(row["recommendation_date"] or "")[:10] < active_feed_date()
 
 
 def watchlist_for_user(user_id: int) -> list[dict[str, Any]]:
@@ -3566,62 +3571,75 @@ def community_value_proof(day: str, user: sqlite3.Row) -> list[dict[str, Any]]:
     ]
 
 
-def recent_backtest_showcase(day: str, user: sqlite3.Row, limit: int = 4) -> dict[str, Any]:
-    days = [
-        row["recommendation_date"]
-        for row in query(
-            """
-            select distinct r.recommendation_date
-            from rumors r join backtests b on b.rumor_id = r.id
-            where r.recommendation_date <= ?
-              and b.ret_t1_1 is not null
-            order by r.recommendation_date desc
-            limit 3
-            """,
-            (day,),
-        )
-    ]
-    if not days:
-        return {"headline": "近3个交易日高分信号", "items": [], "summary": "等待回测样本沉淀"}
-    placeholders = ",".join("?" for _ in days)
+def detail_rumor(row: sqlite3.Row, stats: dict[str, Any] | None, watched_codes: set[str], user: sqlite3.Row) -> dict[str, Any]:
+    stocks = rumor_stock_items(row)
+    watched = any(item["code"] and item["code"] in watched_codes for item in stocks)
+    return {
+        "id": row["id"],
+        "submitter_name": row["submitter_name"],
+        "target": row["target"],
+        "stock_codes": stocks,
+        "logic": row["logic"],
+        "raw_content": row["raw_content"],
+        "institution": row["institution"],
+        "recommender": row["recommender"],
+        "key_points": json.loads(row["key_points"] or "[]"),
+        "recommendation_date": row["recommendation_date"],
+        "ai_score": row["ai_score"],
+        "ai_tier": row["ai_tier"],
+        "created_at": row["created_at"],
+        "source": row["source"],
+        "discussion": stats
+        or {
+            "comments": 0,
+            "useful": 0,
+            "verify": 0,
+            "doubt": 0,
+            "heat": 0,
+            "my_reactions": [],
+            "moderation": {"reports": 0, "report_reasons": {}, "report_labels": [], "my_reports": [], "trust_state": "clear", "penalty": 0},
+        },
+        "watched": watched,
+        "unlocked": True,
+        "hidden": False,
+        "rights": rumor_rights_fingerprint(int(row["id"]), int(user["id"]), True),
+    }
+
+
+def recent_backtest_showcase(day: str, user: sqlite3.Row, limit: int = 10) -> dict[str, Any]:
     rows = query(
-        f"""
+        """
         select r.*, b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.signal_value, b.max_drawdown_20, b.status
         from rumors r join backtests b on b.rumor_id = r.id
-        where r.recommendation_date in ({placeholders})
-          and b.signal_value is not null
-        order by b.signal_value desc, r.ai_score desc, r.id desc
+        where r.recommendation_date < ?
+          and b.ret_t1_1 is not null
+        order by b.ret_t1_1 desc, b.signal_value desc, r.ai_score desc, r.id desc
         limit ?
         """,
-        (*days, max(8, min(24, limit * 4))),
+        (day, limit),
     )
-    unlocked = user_unlocked_ids(user)
-    stats = discussion_stats([row["id"] for row in rows], user["id"])
-    watched_codes = watched_codes_for_user(user["id"])
+    if not rows:
+        return {"headline": "近3个交易日高分信号", "items": [], "summary": "等待回测样本沉淀"}
     items = []
     for row in rows:
-        item = public_rumor(row, can_view(user, row, unlocked), stats.get(row["id"]), watched_codes, user["id"], user)
-        outcome = backtest_outcome(row)
-        composite = float((item.get("dimension_scores") or {}).get("composite") or 0)
+        item = public_rumor(row, True, None, None, user["id"], user, slim=True)
         items.append(
             {
                 "rumor": item,
-                "dimension_composite": round(composite, 1),
                 "signal_value": round(float(row["signal_value"] or 0), 1),
                 "ret_t1_1": row["ret_t1_1"],
                 "ret_t1_5": row["ret_t1_5"],
                 "ret_t1_20": row["ret_t1_20"],
                 "max_drawdown_20": row["max_drawdown_20"],
-                "outcome": outcome,
+                "outcome": item.get("outcome") or {},
                 "return_label": "信号后涨幅",
             }
         )
-    items.sort(key=lambda entry: (float(entry.get("dimension_composite") or 0), float(entry.get("signal_value") or 0)), reverse=True)
     return {
         "headline": "近3个交易日高回测信号",
         "summary": "按推荐逻辑、稀缺性、回测分位和观察者评分综合排序；用于证明历史信号质量，实时仍看当日信号。",
-        "dates": days,
-        "items": items[:limit],
+        "dates": sorted({item["rumor"]["recommendation_date"] for item in items}, reverse=True),
+        "items": items,
     }
 
 
@@ -4814,12 +4832,18 @@ def invite_preview(code: str) -> dict[str, Any]:
     }
 
 
-def active_feed_date() -> str:
+@lru_cache(maxsize=1)
+def latest_trading_date() -> str:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if query("select 1 from rumors where recommendation_date = ? limit 1", (today,)):
-        return today
-    rows = query("select max(recommendation_date) d from rumors")
+    rows = query("select max(start_date) d from backtests where start_date <= ?", (today,))
+    if rows and rows[0]["d"]:
+        return rows[0]["d"]
+    rows = query("select max(recommendation_date) d from rumors where recommendation_date <= ?", (today,))
     return rows[0]["d"] or today
+
+
+def active_feed_date() -> str:
+    return latest_trading_date()
 
 
 @lru_cache(maxsize=1)
@@ -5419,88 +5443,10 @@ def value_framework(response: Response, agu_session: str | None = Cookie(default
 def community_insight(response: Response, agu_session: str | None = Cookie(default=None)) -> dict[str, Any]:
     user = current_user(response, agu_session)
     day = active_feed_date()
-    totals = query(
-        """
-        select count(*) total,
-               sum(case when source = 'community' then 1 else 0 end) community_total,
-               avg(ai_score) avg_score,
-               max(ai_score) top_score
-        from rumors
-        """
-    )[0]
-    today_rows = query(
-        """
-        select ai_tier, count(*) n
-        from rumors where recommendation_date = ?
-        group by ai_tier
-        """,
-        (day,),
-    )
-    unlocked_count = query("select count(*) n from unlocks where user_id = ?", (user["id"],))[0]["n"]
-    top_rows = query(
-        """
-        select id, submitter_name, target, logic, ai_score, ai_tier, ai_reasons, stock_codes, key_points,
-               recommendation_date, raw_content, institution, recommender, created_at, source, submitter_id
-        from rumors
-        where recommendation_date = ?
-        order by ai_score desc, id desc
-        limit 3
-        """,
-        (day,),
-    )
-    provider_rows = query(
-        """
-        select u.id, u.display_name, u.xp, u.reputation, u.direct_quota, u.invite_count,
-               count(r.id) rumor_count, avg(r.ai_score) avg_score
-        from users u left join rumors r on r.submitter_id = u.id
-        where u.is_guest = 0 or u.xp > 0
-        group by u.id
-        order by u.xp desc, u.reputation desc
-        limit 6
-        """
-    )
-    top_stats = discussion_stats([r["id"] for r in top_rows], user["id"])
-    unlocked = user_unlocked_ids(user)
-    watched_codes = watched_codes_for_user(user["id"])
     return {
         "active_date": day,
         "rights_envelope": rights_envelope("community-insight", user["id"], day),
-        "stats": {
-            "total_rumors": int(totals["total"] or 0),
-            "community_total": int(totals["community_total"] or 0),
-            "avg_score": round(float(totals["avg_score"] or 0), 1),
-            "top_score": int(totals["top_score"] or 0),
-            "unlocked_count": int(unlocked_count or 0),
-        },
-        "tier_mix": {row["ai_tier"]: int(row["n"]) for row in today_rows},
-        "topic_radar": topic_radar(day),
-        "daily_brief": daily_brief(day, user["id"]),
-        "daily_workflow": daily_workflow(day, user),
-        "value_proof": community_value_proof(day, user),
-        "recent_backtest_showcase": recent_backtest_showcase(day, user),
-        "today_signal_board": today_signal_board(day, user),
-        "opportunity_summary": opportunity_summary(day, user),
-        "action_queue": frontpage_action_queue(day, user),
-        "bounty_board": frontpage_bounty_board(day, user),
-        "watchlist": watch_summary(user["id"]),
-        "followed_providers": followed_provider_summary(user["id"]),
-        "highlights": [public_rumor(r, can_view(user, r, unlocked), top_stats.get(r["id"]), watched_codes, user["id"], user) for r in top_rows],
-        "providers": [
-            {
-                **dict(r),
-                "level": level_for(r["xp"])["name"],
-                "contribution": contribution_for_user(r["id"]),
-                "feedback_score": provider_feedback_score(r["id"]),
-                "provider_grade": provider_grade(
-                    r["xp"],
-                    r["reputation"],
-                    contribution_for_user(r["id"]),
-                    r["invite_count"] or 0,
-                    provider_feedback_score(r["id"]),
-                ),
-            }
-            for r in provider_rows
-        ],
+        "recent_backtest_showcase": recent_backtest_showcase(day, user, limit=10),
     }
 
 
@@ -5773,7 +5719,18 @@ def daily_stats(response: Response, agu_session: str | None = Cookie(default=Non
 
 
 @app.get("/api/rumors")
-def list_rumors(response: Response, agu_session: str | None = Cookie(default=None), q: str = "", tier: str = "", date: str = "", watch: int = 0, followed: int = 0, offset: int = 0, limit: int = 24) -> dict[str, Any]:
+def list_rumors(
+    response: Response,
+    agu_session: str | None = Cookie(default=None),
+    q: str = "",
+    tier: str = "",
+    date: str = "",
+    watch: int = 0,
+    followed: int = 0,
+    section: str = "",
+    offset: int = 0,
+    limit: int = 24,
+) -> dict[str, Any]:
     user = current_user(response, agu_session)
     limit = max(1, min(60, limit))
     offset = max(0, offset)
@@ -5788,6 +5745,11 @@ def list_rumors(response: Response, agu_session: str | None = Cookie(default=Non
     if date:
         where.append("recommendation_date = ?")
         args.append(normalize_date(date))
+    elif section == "today":
+        where.append("recommendation_date >= ?")
+        args.append(active_feed_date())
+    if section == "today":
+        where.append("stock_codes not in ('', '[]') and stock_codes is not null")
     if watch:
         watch_items = watchlist_for_user(user["id"])
         if not watch_items:
@@ -5825,29 +5787,29 @@ def list_rumors(response: Response, agu_session: str | None = Cookie(default=Non
              )
         end
     """
-    sql = f"""
-        select r.* from rumors r
-        left join backtests b on b.rumor_id = r.id
-        {report_rollup.replace('left join', 'left join').strip()}
-    """
-    # 替换掉原有的 report_rollup join（已经在上面 sql 里了，重新构造）
     sql = f"select r.*, b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.signal_value from rumors r left join backtests b on b.rumor_id = r.id {report_rollup}"
     if where:
         sql += " where " + " and ".join(where)
     sql += f" order by case when b.ret_t1_1 is not null then 0 else 1 end, coalesce(b.ret_t1_1, 0) desc, (r.ai_score - {penalty_expr}) desc, r.recommendation_date desc limit ? offset ?"
-    rows = query(sql, (*args, limit + 1, offset))
-    has_more = len(rows) > limit
-    rows = rows[:limit]
+    if section == "today":
+        raw_rows = query(sql, (*args, 500, 0))
+        rows = raw_rows
+    else:
+        rows = query(sql, (*args, limit + 1, offset))
+        has_more = len(rows) > limit
+        rows = rows[:limit]
     unlocked = user_unlocked_ids(user)
     stats = discussion_stats([r["id"] for r in rows], user["id"])
     watched_codes = watched_codes_for_user(user["id"])
-    from datetime import date as _date
-    today = _date.today().isoformat()
-    # 历史消息（非当天）按评分排序后前 40% 强制免费可见
-    historic_ids = [r["id"] for r in rows if str(r["recommendation_date"] or "")[:10] < today]
+    # 历史消息（非当前情报日）按排序结果前 40% 强制免费可见
+    historic_ids = [r["id"] for r in rows if is_historic_rumor(r)]
     free_count = max(1, len(historic_ids) * 4 // 10)
     free_ids = set(historic_ids[:free_count])
     items = [public_rumor(r, can_view(user, r, unlocked) or r["id"] in free_ids, stats.get(r["id"]), watched_codes, user["id"], user, slim=True) for r in rows]
+    if section == "today":
+        items.sort(key=lambda item: (1 if item.get("unlocked") else 0, item.get("recommendation_date") or "", int(item.get("ai_score") or 0)), reverse=True)
+        has_more = len(items) > offset + limit
+        items = items[offset : offset + limit]
     payload_key = ",".join(str(item["id"]) for item in items) or "empty"
     return {
         "items": items,
@@ -5865,7 +5827,8 @@ def get_rumor(rumor_id: int, response: Response, agu_session: str | None = Cooki
     if not rows:
         raise HTTPException(404, "消息不存在")
     unlocked = user_unlocked_ids(user)
-    if not can_view(user, rows[0], unlocked):
+    force_open = is_historic_rumor(rows[0])
+    if not force_open and not can_view(user, rows[0], unlocked):
         raise HTTPException(403, "需要分享同等价值消息或提升等级")
     bt = query("select * from backtests where rumor_id = ?", (rumor_id,))
     backtest = dict(bt[0]) if bt else None
@@ -5884,7 +5847,7 @@ def get_rumor(rumor_id: int, response: Response, agu_session: str | None = Cooki
     stats = discussion_stats([rumor_id], user["id"]).get(rumor_id)
     watched_codes = watched_codes_for_user(user["id"])
     return {
-        "item": public_rumor(rows[0], True, stats, watched_codes, user["id"], user),
+        "item": detail_rumor(rows[0], stats, watched_codes, user),
         "backtest": backtest,
         "comments": [dict(row) for row in comments],
         "rights_envelope": rights_envelope("rumor-detail", user["id"], str(rumor_id)),

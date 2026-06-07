@@ -1,5 +1,6 @@
 # 运行时数据库（本地状态，勿提交）
 data/*.db
+data/*.db.bak_*
 data/*.db-shm
 data/*.db-wal
 data/stock_lookup.json

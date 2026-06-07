@@ -1836,6 +1836,12 @@ textarea { min-height: 180px; resize: vertical; }
   font-size: 12px;
   line-height: 1.35;
 }
+.showcase-dates {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
 .showcase-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1866,13 +1872,21 @@ textarea { min-height: 180px; resize: vertical; }
   gap: 2px;
 }
 .showcase-item strong {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.showcase-item strong .stock-code {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.2;
 }
 .showcase-item span {
   color: var(--muted);
@@ -1882,6 +1896,14 @@ textarea { min-height: 180px; resize: vertical; }
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.showcase-item .badge {
+  color: #fff;
+  display: inline-grid;
+  line-height: 1;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
 }
 .showcase-ret {
   flex-shrink: 0;
@@ -2399,6 +2421,25 @@ textarea { min-height: 180px; resize: vertical; }
   gap: 12px;
 }
 .section-head h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.feed-module {
+  margin-bottom: 18px;
+}
+.module-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.module-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.module-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .grid { display: flex; flex-direction: column; gap: 0; }
 .tier-stats {
   display: grid;
@@ -2449,17 +2490,30 @@ textarea { min-height: 180px; resize: vertical; }
 .card:hover { background: var(--bg); box-shadow: none; border-color: var(--line); }
 .card-head { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .target { font-weight: 600; font-size: 14px; line-height: 1.2; white-space: nowrap; }
+.stock-code {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .card-head small { display: none; }
 .badge {
-  min-width: 38px;
+  width: 26px;
+  min-width: 26px;
   height: 26px;
   border-radius: 5px;
-  display: grid;
+  display: inline-grid;
   place-items: center;
+  text-align: center;
   background: var(--accent);
   color: #fff;
   font-weight: 700;
   font-size: 12px;
+  line-height: 1;
   flex-shrink: 0;
 }
 .logic { color: #344054; line-height: 1.55; font-size: 14px; }
