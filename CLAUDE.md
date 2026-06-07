@@ -18,15 +18,15 @@ python3 -m pip install -r requirements.txt
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8289
 python3 -m app.main                      # respects HOST / PORT env vars
 
-# Tests (none checked in yet; convention if adding them)
-pytest -q                                # use FastAPI TestClient under tests/, name test_<feature>.py
+# Run tests
+pytest -q                                # tests/ dir, name test_<feature>.py; use FastAPI TestClient
 ```
 
 The UI serves from `/`, static assets from `/static`.
 
 ## Architecture
 
-Nearly all backend logic lives in a single module, `app/main.py` (~960 lines). Keep it there unless a change clearly justifies splitting. The frontend is vanilla HTML/JS/CSS in `static/` (`index.html`, `app.js`, `styles.css`) — no build step, no framework. `app.js` talks to the JSON API under `/api/*`.
+Nearly all backend logic lives in a single module, `app/main.py` (~6300 lines). Keep it there unless a change clearly justifies splitting. The frontend is vanilla HTML/JS/CSS in `static/` (`index.html`, `app.js`, `styles.css`) — no build step, no framework. `app.js` talks to the JSON API under `/api/*`.
 
 ### Data sources (all optional; app degrades gracefully when absent)
 
@@ -42,7 +42,14 @@ These interlocking systems are the heart of the app and span multiple functions:
 - **Summarization** (`summarize_payload`): `heuristic_summary` (regex extraction of target/logic/institution/key_points) is the base, merged with optional `llm_summary` when an API key is set. `llm_summary` tries OpenAI-compatible `/chat/completions` first, then falls back to the `/responses` endpoint. Always returns at least the heuristic result.
 - **Tier access & contribution** (`tier_access`, `contribution_for_user`): contribution is a time-decayed sum of a user's submitted rumor scores (30-day half-life, `CONTRIBUTION_HALF_LIFE_DAYS`). A user can view a tier if it's free, or their XP / contribution clears the `TIER_RULES` threshold.
 - **Unlock economy** (`unlock_similar`, `can_view`, `public_rumor`): submitting a rumor auto-unlocks one random rumor of comparable score (±12). Locked rumors are returned with masked target (`mask_target`) and hidden fields. Ownership, prior unlock, or tier access all grant visibility.
-- **Backtest + reputation** (`refresh_backtests` → `recalc_user_scores`): maps each rumor's target to a stock code (`find_code` via name lookup or embedded ticker), computes 5/20/60-day and max-60-day returns from the recommendation date, stores in `backtests`. `recalc_user_scores` then derives every submitter's XP, reputation, and direct quota from their rumors' scores and realized returns, and updates `level_for` tiers. These run together after each submission and on manual refresh.
+- **Backtest + reputation** (`refresh_backtests` → `recalc_user_scores`): maps each rumor's target to a stock code (`find_codes` via name lookup or embedded ticker), computes 5/20/60-day and max-60-day returns from the recommendation date, stores in `backtests`. `recalc_user_scores` then derives every submitter's XP, reputation, and direct quota from their rumors' scores and realized returns, and updates `level_for` tiers. These run together after each submission and on manual refresh.
+- **Novelty analysis** (`novelty_analysis`): Jaccard similarity against existing rumors in the same stock/tier window; penalizes duplicates and rewards unique signals via `apply_novelty_to_score`.
+- **Verification system** (`verification_tasks`, `verification_bounties`, `evidence_ladder`): generates structured verification tasks and bounties for a rumor based on its score, risk, and discussion state. `evidence_ladder` maps a rumor to a multi-level verification chain with XP rewards.
+- **Provider profile & credibility** (`provider_profile`, `source_credibility_passport`, `provider_grade`, `provider_upgrade_plan`): aggregates a submitter's XP, reputation, backtested return stats, and grade (S/A/B/C/D) into a public profile. `provider_rank_context` and `provider_recent_performance` support the ranking/leaderboard.
+- **Community & social** (`community_rooms`, `watchlist_for_user`, `watched_codes_for_user`, follow/unfollow providers): rooms group rumors by stock/theme; watchlist tracks stocks; provider follows filter the feed.
+- **Frontpage feeds** (`frontpage_action_queue`, `frontpage_bounty_board`, `daily_brief`, `today_signal_board`, `opportunity_summary`): composites that assemble the daily dashboard — signal board, bounty board, community proof, and action queue — from cached/live data.
+- **Moderation** (`moderation_penalty`, `moderation_state`, `report_stats`): reports feed a penalty score that can suppress a rumor; `moderation_summary` (admin endpoint) aggregates report counts and states.
+- **Growth & missions** (`growth_missions`, `growth_ledger`, `activation_center`, `referral_center`): daily/weekly XP missions, referral invite codes, and onboarding activation funnel.
 
 ### Database schema
 

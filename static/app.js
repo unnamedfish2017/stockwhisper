@@ -202,186 +202,53 @@ async function loadCommunityInsight() {
   const data = await api("/api/community-insight");
   state.community = data;
   state.rightsEnvelope = data.rights_envelope || state.rightsEnvelope;
-  const stats = data.stats || {};
-  $("#pulseCopy").textContent = `${data.active_date}：社区累计 ${stats.total_rumors || 0} 条线索，社区投稿 ${stats.community_total || 0} 条，最高评分 ${stats.top_score || 0}。`;
-  $("#pulseMetrics").innerHTML = [
-    ["情报总量", stats.total_rumors || 0],
-    ["社区投稿", stats.community_total || 0],
-    ["平均评分", Number(stats.avg_score || 0).toFixed(1)],
-    ["已解锁", stats.unlocked_count || 0],
-  ].map(([label, value]) => `<div class="pulse-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
-  renderValueProof(data.value_proof || []);
-  renderDailyBrief(data.daily_brief || {});
-  renderDailyWorkflow(data.daily_workflow || {});
-  state.opportunity = data.opportunity_summary || {};
-  renderOpportunityDeck(state.opportunity);
-  renderBountyBoard(data.bounty_board || {});
-  renderActionQueue(data.action_queue || []);
   renderRecentBacktestShowcase(data.recent_backtest_showcase || {});
-  renderTodaySignalBoard(data.today_signal_board || {});
-  $("#highlightList").innerHTML = (data.highlights || []).map(renderHighlight).join("") || `<p class="empty">暂无高分线索</p>`;
-  renderTopicRadar(data.topic_radar || {});
-  renderInvitePanel();
-  refreshAuthIncentiveIfOpen();
 }
 
 function renderValueProof(items) {
-  $("#valueProof").innerHTML = (items || []).map((item) => `
-    <div class="proof-chip ${esc(item.state || "quiet")}">
-      <span>${esc(item.label)}</span>
-      <strong>${esc(item.value)}</strong>
-      <small>${esc(item.detail)}</small>
-    </div>
-  `).join("");
+  // panel removed
 }
+
 
 async function loadCommunityRooms() {
-  const data = await api("/api/community-rooms");
-  state.communityRooms = data;
-  renderCommunityRooms();
+  // panel removed
 }
+
 
 async function loadActivityFeed() {
-  const data = await api("/api/activity-feed");
-  state.activityFeed = data;
-  renderActivityPanel();
+  // panel removed
 }
+
 
 async function loadExchangeDesk() {
-  const data = await api("/api/exchange-desk");
-  state.exchangeDesk = data;
-  renderExchangePanel();
+  // panel removed
 }
+
 
 async function loadModerationSummary() {
-  const data = await api("/api/moderation-summary");
-  state.moderationSummary = data;
-  renderTrustCenterPanel();
+  // panel removed
 }
+
 
 async function loadReferralCenter() {
-  const data = await api("/api/referral-center");
-  state.referral = data;
-  renderInvitePanel();
-  refreshAuthIncentiveIfOpen();
+  // panel removed
 }
+
 
 async function loadActivationCenter() {
-  const data = await api("/api/activation-center");
-  state.activation = data;
-  renderActivationPanel();
-  refreshAuthIncentiveIfOpen();
+  // panel removed
 }
+
 
 function renderExchangePanel() {
-  const data = state.exchangeDesk || {};
-  const resources = data.resources || {};
-  const opportunities = data.opportunities || [];
-  const actions = data.actions || [];
-  const directCopy = state.user?.is_guest ? "注册后直看" : `${resources.direct_quota || 0} 直看`;
-  $("#exchangePanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">EXCHANGE DESK</span>
-        <h3>情报交换台</h3>
-      </div>
-      <span>${directCopy} · ${Number(resources.contribution || 0).toFixed(1)} 贡献</span>
-    </div>
-    <div class="exchange-layout">
-      <div class="exchange-opportunities">
-        ${opportunities.slice(0, 3).map((entry) => {
-          const item = entry.item || {};
-          const gap = entry.gap || {};
-          return `
-            <article class="exchange-card">
-              <div>
-                <span class="badge">${esc(item.ai_tier)}${item.ai_score}</span>
-                <strong>${esc(item.target)}</strong>
-              </div>
-              <p>${esc(item.logic)}</p>
-              <footer>
-                <span>差 ${gap.xp_gap || 0} XP</span>
-                <span>差 ${Number(gap.contribution_gap || 0).toFixed(1)} 贡献</span>
-                ${entry.direct_unlockable ? `<button class="ghost exchange-unlock" data-id="${item.id}">直看</button>` : ""}
-              </footer>
-            </article>
-          `;
-        }).join("") || `<p class="empty">当前等级已覆盖样本池，继续投稿可刷新交换池。</p>`}
-      </div>
-      <div class="exchange-actions">
-        ${actions.slice(0, 4).map((action) => `
-          <button class="ghost exchange-action" data-key="${esc(action.key)}" data-view="${esc(action.view || "feed")}" data-invite="${esc(action.invite_code || "")}">
-            <strong>${esc(action.title)}</strong>
-            <span>${esc(action.description)}</span>
-          </button>
-        `).join("")}
-      </div>
-    </div>
-  `;
-  $$("#exchangePanel .exchange-unlock").forEach((btn) => btn.addEventListener("click", () => unlockRumor(btn.dataset.id)));
-  $$("#exchangePanel .exchange-action").forEach((btn) => btn.addEventListener("click", () => runExchangeAction(btn)));
+  // panel removed
 }
 
+
 function renderTrustCenterPanel() {
-  const data = state.moderationSummary || {};
-  const reasons = data.reasons || [];
-  const items = data.items || [];
-  const guardrails = data.guardrails || [];
-  const rights = data.rights_protection || {};
-  $("#trustCenterPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">TRUST CENTER</span>
-        <h3>社区可信度中枢</h3>
-      </div>
-      <span>${Number(data.health_score || 0).toFixed(1)}% 清洁</span>
-    </div>
-    <div class="trust-layout">
-      <div class="trust-metrics">
-        <div><span>线索总量</span><strong>${data.total_rumors || 0}</strong></div>
-        <div><span>清洁样本</span><strong>${data.clean_total || 0}</strong></div>
-        <div><span>举报线索</span><strong>${data.flagged_total || 0}</strong></div>
-        <div><span>待复核</span><strong>${data.review_total || 0}</strong></div>
-      </div>
-      <div class="trust-policy">
-        <strong>${esc(data.status === "review" ? "存在待复核风险" : data.status === "watch" ? "有举报，已降权观察" : "当前社区较清洁")}</strong>
-        <p>${esc(data.policy || "举报会影响有效分和排序权重。")}</p>
-        <div>${reasons.slice(0, 4).map((item) => `<span>${esc(item.label)} ${item.count}</span>`).join("") || `<span>暂无举报</span>`}</div>
-      </div>
-      <div class="rights-protection">
-        <div>
-          <span class="eyebrow">RIGHTS MARK</span>
-          <strong>${esc(rights.headline || "原创情报版权保护")}</strong>
-          <p>${esc(rights.summary || "复制与详情会携带平台版权标记。")}</p>
-        </div>
-        <div class="rights-layers">
-          ${(rights.layers || []).slice(0, 4).map((item) => `
-            <span class="${esc(item.state || "active")}">${esc(item.label || "")}</span>
-          `).join("")}
-        </div>
-      </div>
-      <div class="trust-guardrails">
-        ${guardrails.slice(0, 4).map((item) => `
-          <div class="${esc(item.state || "clear")}">
-            <span>${esc(item.label || "")}</span>
-            <strong>${esc(item.value || "")}</strong>
-            <p>${esc(item.detail || "")}</p>
-          </div>
-        `).join("")}
-      </div>
-      <div class="trust-watchlist">
-        ${items.slice(0, 3).map((item) => `
-          <button class="ghost trust-item" data-id="${item.rumor_id}">
-            <span>${esc(item.ai_tier)}${item.ai_score}</span>
-            <strong>${esc(item.target)}</strong>
-            <em>${trustLabel(item.moderation?.trust_state)} · ${item.moderation?.reports || 0}</em>
-          </button>
-        `).join("") || `<p class="empty">暂无被举报线索。</p>`}
-      </div>
-    </div>
-  `;
-  $$("#trustCenterPanel .trust-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id).catch((err) => alert(err.message))));
+  // panel removed
 }
+
 
 async function runExchangeAction(btn) {
   const key = btn.dataset.key;
@@ -404,42 +271,9 @@ async function runExchangeAction(btn) {
 }
 
 function renderActivityPanel() {
-  const data = state.activityFeed || {};
-  const items = data.items || [];
-  const labels = {
-    watch_hit: "自选",
-    followed_source: "关注源",
-    discussion: "求证",
-    growth_tip: "成长",
-    community_pick: "样本",
-  };
-  $("#activityPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">SIGNAL TAPE</span>
-        <h3>${data.personalized ? "你的实时信号" : "社区价值样本"}</h3>
-      </div>
-      <span>${data.watch_hits || 0} 自选 · ${data.followed_hits || 0} 关注源</span>
-    </div>
-    <div class="activity-strip">
-      ${items.slice(0, 8).map((item, idx) => {
-        const rumor = item.rumor || {};
-        return `
-          <article class="activity-item ${esc(item.kind)}">
-            <span class="activity-kind">${esc(labels[item.kind] || item.kind)}</span>
-            <div>
-              <strong>${esc(item.title)}</strong>
-              <p>${esc(item.body)}</p>
-              ${rumor.id ? `<small>${esc(rumor.target)} · ${esc(rumor.ai_tier)}${rumor.ai_score}</small>` : ""}
-            </div>
-            <button class="ghost activity-action" data-index="${idx}">${esc(item.action?.label || "查看")}</button>
-          </article>
-        `;
-      }).join("") || `<p class="empty">暂无信号</p>`}
-    </div>
-  `;
-  $$("#activityPanel .activity-action").forEach((btn) => btn.addEventListener("click", () => runActivityAction(items[Number(btn.dataset.index)]?.action || {})));
+  // panel removed
 }
+
 
 function runActivityAction(action) {
   if (action.view === "detail" && action.rumor_id) {
@@ -464,160 +298,24 @@ function runActivityAction(action) {
 }
 
 function renderDailyBrief(brief) {
-  $("#dailyBrief").innerHTML = `
-    <strong>${esc(brief.headline || "等待社区线索聚合")}</strong>
-    <ul>
-      ${(brief.bullets || []).slice(0, 3).map((item) => `<li>${esc(item)}</li>`).join("")}
-    </ul>
-    <div class="brief-actions">
-      ${(brief.actions || []).map((item) => `<button class="ghost brief-action" data-view="${esc(item.view || "feed")}" data-query="${esc(item.query || "")}" data-tier="${esc(item.tier || "")}">${esc(item.label)}</button>`).join("")}
-    </div>
-    <p>${esc((brief.risk_notes || [])[0] || "")}</p>
-  `;
-  $$("#dailyBrief .brief-action").forEach((btn) => btn.addEventListener("click", () => {
-    const view = btn.dataset.view || "feed";
-    switchView(view);
-    if (view === "feed") {
-      $("#searchInput").value = btn.dataset.query || "";
-      $("#tierFilter").value = btn.dataset.tier || "";
-      state.selectedTier = btn.dataset.tier || "";
-      loadRumors(true);
-    }
-  }));
+  // panel removed
 }
+
 
 function renderDailyWorkflow(workflow) {
-  const root = $("#dailyWorkflow");
-  if (!root) return;
-  const steps = workflow.steps || [];
-  root.innerHTML = `
-    <div class="workflow-head">
-      <div>
-        <span class="eyebrow">RETAIL WORKFLOW</span>
-        <strong>${esc(workflow.headline || "今日情报处理路径")}</strong>
-      </div>
-      <small>${esc(workflow.summary || "按筛选、求证、跟踪处理线索。")}</small>
-    </div>
-    <div class="workflow-steps">
-      ${steps.slice(0, 3).map((item, idx) => `
-        <button type="button" class="workflow-step ${esc(item.key || "")}"
-          data-view="${esc(item.view || "feed")}" data-query="${esc(item.query || "")}" data-tier="${esc(item.tier || "")}">
-          <span>${idx + 1}</span>
-          <div>
-            <small>${esc(item.label || "")} · ${esc(item.metric || "")}</small>
-            <strong>${esc(item.title || "")}</strong>
-            <p>${esc(item.detail || "")}</p>
-          </div>
-          <em>${esc(item.action || "查看")}</em>
-        </button>
-      `).join("")}
-    </div>
-  `;
-  $$("#dailyWorkflow .workflow-step").forEach((btn) => btn.addEventListener("click", async () => {
-    const view = btn.dataset.view || "feed";
-    switchView(view);
-    if (view !== "feed") return;
-    $("#searchInput").value = btn.dataset.query || "";
-    $("#tierFilter").value = btn.dataset.tier || "";
-    state.selectedTier = btn.dataset.tier || "";
-    await loadRumors(true);
-  }));
+  // panel removed
 }
+
 
 function renderOpportunityDeck(opportunity) {
-  const root = $("#opportunityDeck");
-  if (!root) return;
-  const cards = opportunity.cards || [];
-  const actions = opportunity.actions || [];
-  const bestPick = opportunity.best_pick || null;
-  const plan = bestPick?.verification_plan || null;
-  root.innerHTML = `
-    <div class="opportunity-head">
-      <div>
-        <span class="eyebrow">ACTIONABLE EDGE</span>
-        <strong>今日机会台</strong>
-      </div>
-      <small>${esc(opportunity.headline || "根据高价值线索、直看额度和热点房间生成下一步。")}</small>
-    </div>
-    <div class="opportunity-cards">
-      ${cards.slice(0, 4).map((item) => `
-        <div class="opportunity-card ${esc(item.state || "quiet")}">
-          <span>${esc(item.label)}</span>
-          <strong>${esc(item.value)}</strong>
-          <small>${esc(item.detail || "")}</small>
-        </div>
-      `).join("")}
-    </div>
-    ${bestPick ? `
-      <button type="button" class="opportunity-best-pick opportunity-action"
-        data-key="${esc(bestPick.action?.key || "open_best")}" data-view="${esc(bestPick.action?.view || "feed")}"
-        data-query="${esc(bestPick.action?.query || bestPick.target || "")}" data-tier="${esc(bestPick.action?.tier || bestPick.tier || "")}">
-        <span class="best-pick-badge">${esc(bestPick.tier || "")}${esc(bestPick.score ?? "")}</span>
-        <div>
-          <strong>${esc(bestPick.target || "首选线索")} · 调整分 ${esc(bestPick.adjusted_score ?? "-")}</strong>
-          <small>${esc(bestPick.risk_label || "风控清洁")} / ${esc(bestPick.trust_state || "clear")} / ${esc(bestPick.consensus_label || "暂无共识")} / ${esc(bestPick.outcome_label || "待验证")}</small>
-          <em>${esc(bestPick.summary || "按价值、风险、共识和回测综合排序。")}</em>
-          ${plan ? `
-            <section class="best-pick-plan">
-              <header>
-                <span>${esc(plan.headline || "求证计划")}</span>
-                <small>${esc(plan.summary || "")}</small>
-              </header>
-              <div>
-                ${(plan.steps || []).slice(0, 3).map((step) => `
-                  <i class="${esc(step.priority || "medium")}">${esc(step.label || "")}</i>
-                `).join("")}
-              </div>
-            </section>
-          ` : ""}
-        </div>
-      </button>
-    ` : ""}
-    <div class="opportunity-actions">
-      ${actions.slice(0, 4).map((action) => `
-        <button type="button" class="${action.key === opportunity.primary_action?.key ? "" : "ghost"} opportunity-action"
-          data-key="${esc(action.key || "")}" data-view="${esc(action.view || "feed")}" data-query="${esc(action.query || "")}" data-tier="${esc(action.tier || "")}" data-invite="${esc(action.invite_code || "")}">
-          ${esc(action.label || "查看")}
-        </button>
-      `).join("")}
-    </div>
-  `;
-  $$("#opportunityDeck .opportunity-action").forEach((btn) => btn.addEventListener("click", () => runOpportunityAction(btn)));
+  // panel removed
 }
 
+
 function renderBountyBoard(board) {
-  const root = $("#bountyBoard");
-  if (!root) return;
-  const summary = board.summary || {};
-  const items = board.items || [];
-  root.innerHTML = `
-    <div class="bounty-board-head">
-      <div>
-        <span class="eyebrow">VERIFY BOUNTY</span>
-        <strong>求证悬赏榜</strong>
-      </div>
-      <small>${esc(board.headline || "参与求证、存疑和补充讨论，积累信息源声誉。")}</small>
-    </div>
-    <div class="bounty-board-stats">
-      <div><span>可领取</span><strong>${summary.active || 0}</strong></div>
-      <div><span>待解锁</span><strong>${summary.locked || 0}</strong></div>
-      <div><span>总XP</span><strong>${summary.total_reward_xp || 0}</strong></div>
-    </div>
-    <div class="bounty-board-list">
-      ${items.slice(0, 4).map((item) => `
-        <button type="button" class="bounty-board-item ${esc(item.state || "active")}" data-id="${item.rumor_id}">
-          <span>${esc(item.tier)}${item.score}</span>
-          <div>
-            <strong>${esc(item.target)} · ${esc(item.task)}</strong>
-            <small>${esc(item.detail || "")}</small>
-          </div>
-          <em>${item.reward_xp ? `+${Number(item.reward_xp)}XP` : esc(item.action || "解锁")}</em>
-        </button>
-      `).join("") || `<p class="empty">暂无求证悬赏，提交一条可验证线索可生成任务。</p>`}
-    </div>
-  `;
-  $$("#bountyBoard .bounty-board-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id)));
+  // panel removed
 }
+
 
 async function runOpportunityAction(btn) {
   const key = btn.dataset.key;
@@ -647,202 +345,29 @@ async function runOpportunityAction(btn) {
 }
 
 function renderActionQueue(items) {
-  const root = $("#actionQueue");
-  if (!root) return;
-  root.innerHTML = `
-    <div class="action-queue-head">
-      <div>
-        <span class="eyebrow">NEXT BEST ACTIONS</span>
-        <strong>今日优先队列</strong>
-      </div>
-      <small>${items.length ? "按价值、风险、自选和成长收益排序" : "等待社区产生可行动线索"}</small>
-    </div>
-    <div class="action-queue-list">
-      ${(items || []).map((item, idx) => `
-        <button type="button" class="action-queue-item ${esc(item.state || "quiet")}"
-          data-view="${esc(item.view || "feed")}" data-query="${esc(item.query || "")}" data-tier="${esc(item.tier || "")}" data-watch="${item.watch ? "1" : ""}">
-          <span>${String(idx + 1).padStart(2, "0")}</span>
-          <div>
-            <strong>${esc(item.label || "下一步")}</strong>
-            <b>${esc(item.target || "")}</b>
-            <small>${esc(item.detail || "")}</small>
-          </div>
-          <em>${esc(item.action || "查看")}</em>
-        </button>
-      `).join("") || `<p class="empty">暂无优先事项。</p>`}
-    </div>
-  `;
-  $$("#actionQueue .action-queue-item").forEach((btn) => btn.addEventListener("click", async () => {
-    const view = btn.dataset.view || "feed";
-    if (view === "register") {
-      setRegMode("reg");
-      $("#authDialog").showModal();
-      return;
-    }
-    switchView(view);
-    if (view !== "feed") return;
-    $("#searchInput").value = btn.dataset.query || "";
-    $("#tierFilter").value = btn.dataset.tier || "";
-    state.selectedTier = btn.dataset.tier || "";
-    state.watchOnly = btn.dataset.watch === "1";
-    if (state.watchOnly) state.followedOnly = false;
-    renderWatchPanel();
-    renderProviderFollowPanel();
-    await loadRumors(true);
-  }));
+  // panel removed
 }
+
 
 function renderTopicRadar(radar) {
-  const themes = radar.themes || [];
-  const stocks = radar.stocks || [];
-  const sources = radar.sources || [];
-  $("#topicRadar").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">RADAR</span>
-        <h3>热点主题雷达</h3>
-      </div>
-      <span>${themes.length + stocks.length} 个信号</span>
-    </div>
-    <div class="radar-grid">
-      <div>
-        <h4>催化主题</h4>
-        <div class="radar-tags">
-          ${themes.map((item) => `<button class="ghost radar-filter" data-query="${esc(item.name)}">${esc(item.name)}<strong>${item.count}</strong></button>`).join("") || `<p class="empty">暂无主题</p>`}
-        </div>
-      </div>
-      <div>
-        <h4>热议标的</h4>
-        <div class="radar-list">
-          ${stocks.map((item) => `<button class="ghost radar-filter" data-query="${esc(item.name || item.code)}"><span>${esc(item.name || item.code)}</span><strong>${item.count}条</strong></button>`).join("") || `<p class="empty">暂无标的</p>`}
-        </div>
-      </div>
-      <div>
-        <h4>活跃信息源</h4>
-        <div class="radar-list">
-          ${sources.map((item) => `<div><span>${esc(item.name)}</span><strong>${item.count}条 · ${Number(item.avg_score || 0).toFixed(1)}</strong></div>`).join("") || `<p class="empty">暂无信息源</p>`}
-        </div>
-      </div>
-    </div>
-  `;
-  $$("#topicRadar .radar-filter").forEach((btn) => btn.addEventListener("click", () => {
-    $("#searchInput").value = btn.dataset.query || "";
-    state.selectedTier = "";
-    $("#tierFilter").value = "";
-    loadRumors(true);
-  }));
+  // panel removed
 }
+
 
 function renderCommunityRooms() {
-  const data = state.communityRooms || {};
-  const rooms = data.rooms || [];
-  const summary = data.summary || {};
-  $("#communityRooms").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">ROOMS</span>
-        <h3>社区情报房间</h3>
-      </div>
-      <span>${summary.total || 0} 房间 · 热度 ${summary.heat || 0}</span>
-    </div>
-    <div class="room-grid">
-      ${rooms.slice(0, 6).map((room) => {
-        const top = room.top_rumor || {};
-        const verdict = top.value_verdict || {};
-        return `
-          <article class="room-card ${esc(room.kind)}">
-            <header>
-              <span>${room.kind === "stock" ? "标的" : "主题"}</span>
-              <strong>${esc(room.name)}</strong>
-            </header>
-            <div class="room-stats">
-              <div><span>线索</span><strong>${room.count || 0}</strong></div>
-              <div><span>高分</span><strong>${room.top_score || 0}</strong></div>
-              <div><span>信息源</span><strong>${room.provider_count || 0}</strong></div>
-            </div>
-            <p>${esc(room.summary || "")}</p>
-            <div class="room-top">
-              <span class="badge">${esc(top.ai_tier || "-")}${top.ai_score || ""}</span>
-              <div>
-                <strong>${esc(top.target || "等待线索")}</strong>
-                <small>${esc(verdict.label || "可观察")} · ${Number(verdict.index || 0).toFixed(1)} 指数</small>
-              </div>
-            </div>
-            <button class="ghost room-enter" data-query="${esc(room.query || room.name)}">进入房间</button>
-          </article>
-        `;
-      }).join("") || `<p class="empty">暂无可进入房间，等待社区产生更多主题信号。</p>`}
-    </div>
-  `;
-  $$("#communityRooms .room-enter").forEach((btn) => btn.addEventListener("click", () => {
-    $("#searchInput").value = btn.dataset.query || "";
-    $("#tierFilter").value = "";
-    state.selectedTier = "";
-    switchView("feed");
-    loadRumors(true);
-  }));
+  // panel removed
 }
+
 
 async function loadValueFramework() {
-  const data = await api("/api/value-framework");
-  state.framework = data;
-  const verdict = data.value_verdict;
-  const calibration = data.calibration || {};
-  $("#valueFramework").innerHTML = [
-    ...(data.score_dimensions || []).map((item) => `
-    <div class="framework-row">
-      <div>
-        <strong>${esc(item.name)}</strong>
-        <p>${esc(item.description)}</p>
-      </div>
-      <span>${item.weight}</span>
-    </div>
-  `),
-    verdict ? `
-    <div class="framework-row verdict-row">
-      <div>
-        <strong>${esc(verdict.name)}</strong>
-        <p>${esc(verdict.description)}</p>
-      </div>
-      <span>指数</span>
-    </div>
-  ` : "",
-    calibration.headline ? `
-    <div class="framework-calibration">
-      <div>
-        <span class="eyebrow">CALIBRATION</span>
-        <strong>${esc(calibration.headline)}</strong>
-        <p>${esc(calibration.summary || "")}</p>
-      </div>
-      <div class="calibration-lanes">
-        <section>
-          <span>加权因素</span>
-          ${(calibration.positive || []).slice(0, 3).map((item) => `
-            <p><strong>${esc(item.label)}</strong><small>${esc(item.impact)} · ${esc(item.detail)}</small></p>
-          `).join("")}
-        </section>
-        <section>
-          <span>扣分/降权</span>
-          ${(calibration.negative || []).slice(0, 3).map((item) => `
-            <p><strong>${esc(item.label)}</strong><small>${esc(item.impact)} · ${esc(item.detail)}</small></p>
-          `).join("")}
-        </section>
-      </div>
-      <footer>${(calibration.principles || []).map(esc).join(" · ")}</footer>
-    </div>
-  ` : "",
-  ].join("");
+  // panel removed
 }
 
+
 async function loadGrowthCenter() {
-  const data = await api("/api/growth-center");
-  state.growth = data;
-  state.user = data.user || state.user;
-  renderProfile();
-  renderGrowthPanel();
-  refreshAuthIncentiveIfOpen();
-  await loadSourceUpgradeCenter();
+  // panel removed
 }
+
 
 async function loadSourceUpgradeCenter() {
   const data = await api("/api/source-upgrade-center");
@@ -853,169 +378,24 @@ async function loadSourceUpgradeCenter() {
 }
 
 async function loadWatchlist() {
-  const data = await api("/api/watchlist");
-  state.watchlist = data;
-  renderWatchPanel();
+  // panel removed
 }
+
 
 async function loadProviderFollows() {
-  const data = await api("/api/provider-follows");
-  state.followedProviders = data;
-  renderProviderFollowPanel();
+  // panel removed
 }
+
 
 function renderProviderFollowPanel() {
-  const data = state.followedProviders || {};
-  const items = data.items || [];
-  const suggestions = data.suggestions || [];
-  const board = data.source_board || {};
-  const topSource = board.top_source || null;
-  $("#providerFollowPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">SOURCES</span>
-        <h3>关注信息源</h3>
-      </div>
-      <strong>${items.length}</strong>
-    </div>
-    <div class="watch-actions">
-      <button class="ghost ${state.followedOnly ? "active-filter" : ""}" id="followedOnlyBtn">${state.followedOnly ? "查看全部" : "只看关注源"}</button>
-    </div>
-    <div class="source-board">
-      <div>
-        <strong>${esc(board.headline || "关注可信信息源，建立个人来源流")}</strong>
-        <p>${board.followed_count || 0} 已关注 · ${board.suggested_count || 0} 可推荐 · ${board.trusted_count || 0} 可信源</p>
-      </div>
-      ${topSource ? `
-        <button class="source-board-top provider-open" data-id="${topSource.id}">
-          <span>${esc(topSource.reason || "最高源分")}</span>
-          <strong>${esc(topSource.display_name)} · ${Number(topSource.score || 0).toFixed(1)}</strong>
-          <small>${esc(topSource.grade || "信息源")}</small>
-        </button>
-      ` : `<p class="empty">暂无可评估信息源，等待社区投稿沉淀。</p>`}
-      <button class="ghost source-upgrade-jump">${esc(board.upgrade_action?.label || "提升我的源分")}</button>
-    </div>
-    <div class="watch-list">
-      ${items.slice(0, 5).map((item) => `
-        <div class="watch-row">
-          <div><strong>${esc(item.display_name)}</strong><p>${Number(item.provider_grade?.score || 0).toFixed(1)}源分 · ${item.rumor_count || 0}条</p></div>
-          <button class="ghost provider-open" data-id="${item.id}">档案</button>
-        </div>
-      `).join("") || `<p class="empty">先关注几个可信信息源，这里会变成你的个人来源动态。</p>`}
-    </div>
-    <div class="source-suggestions">
-      <strong>推荐关注</strong>
-      ${suggestions.slice(0, 3).map((item) => `
-        <div class="source-suggestion">
-          <div>
-            <span>${esc(item.reason || "推荐信息源")}</span>
-            <strong>${esc(item.display_name)}</strong>
-            <p>${Number(item.provider_grade?.score || 0).toFixed(1)}源分 · ${item.rumor_count || 0}条 · 峰值${item.top_score || 0}</p>
-          </div>
-          <div>
-            <button class="ghost provider-open" data-id="${item.id}">档案</button>
-            <button class="ghost provider-follow-now" data-id="${item.id}">关注</button>
-          </div>
-        </div>
-      `).join("") || `<p class="empty">暂无推荐来源，等待更多社区投稿。</p>`}
-    </div>
-  `;
-  $("#followedOnlyBtn")?.addEventListener("click", () => {
-    state.followedOnly = !state.followedOnly;
-    renderProviderFollowPanel();
-    loadRumors(true);
-  });
-  $("#providerFollowPanel .source-upgrade-jump")?.addEventListener("click", () => switchView("rank"));
-  $$("#providerFollowPanel .provider-open").forEach((btn) => btn.addEventListener("click", () => openProviderProfile(btn.dataset.id)));
-  $$("#providerFollowPanel .provider-follow-now").forEach((btn) => btn.addEventListener("click", () => setProviderFollow(btn.dataset.id, true)));
+  // panel removed
 }
 
+
 function renderWatchPanel() {
-  const data = state.watchlist || {};
-  const items = data.items || [];
-  const suggestions = data.suggestions || [];
-  const digest = data.digest || {};
-  const privilege = data.view_privilege || {};
-  const alertLabels = { hot: "热", active: "动", risk: "险", quiet: "静" };
-  $("#watchPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">WATCHLIST</span>
-        <h3>自选情报</h3>
-      </div>
-      <strong>${items.length}</strong>
-    </div>
-    <div class="watch-actions">
-      <button class="ghost ${state.watchOnly ? "active-filter" : ""}" id="watchOnlyBtn">${state.watchOnly ? "查看全部" : "只看自选"}</button>
-    </div>
-    <form class="watch-manual-add" id="watchManualAdd">
-      <input name="code" placeholder="代码，如 600000.sh" />
-      <input name="name" placeholder="名称，如 浦发银行" />
-      <button type="submit">加入自选</button>
-    </form>
-    <div class="watch-privilege ${esc(privilege.state || "locked")}">
-      <strong>${esc(privilege.label || "提升等级后开放自选全量浏览")}</strong>
-      <span>${Number(privilege.limit || 0)} 条自选命中可浏览</span>
-    </div>
-    <div class="watch-digest ${esc(digest.state || "quiet")}">
-      <strong>${esc(digest.headline || "建立自选后生成个人信号摘要")}</strong>
-      <p>${digest.total_watches || 0} 个自选 · ${digest.rumor_hits || 0} 条命中 · 高热 ${digest.hot_count || 0} · 风险 ${digest.risk_count || 0}</p>
-      ${digest.action ? `<button class="ghost watch-digest-action" data-key="${esc(digest.action.key || "")}" data-query="${esc(digest.action.query || "")}">${esc(digest.action.label || "查看")}</button>` : ""}
-    </div>
-    <div class="watch-list">
-      ${items.slice(0, 5).map((item) => `
-        <div class="watch-row ${esc(item.alert_level || "quiet")}">
-          <div>
-            <strong><span>${esc(item.name)}</span><em>${esc(alertLabels[item.alert_level] || "静")}</em></strong>
-            <p>${esc(item.code)} · ${item.rumor_count || 0}条 · 最高 ${item.top_score || 0}</p>
-            ${item.latest_signal ? `<small>${esc(item.latest_signal.date)} ${esc(item.latest_signal.tier)}${item.latest_signal.score} · ${esc(item.latest_signal.outcome?.label || "待验证")}</small>` : `<small>暂无社区线索</small>`}
-          </div>
-          <div class="watch-row-actions">
-            <button class="ghost watch-focus" data-query="${esc(item.code || item.name)}">查看</button>
-            <button class="ghost watch-remove" data-code="${esc(item.code)}">移除</button>
-          </div>
-        </div>
-      `).join("") || `<p class="empty">在详情页关注股票后，这里会变成你的个人信号流。</p>`}
-    </div>
-    <div class="watch-suggestions">
-      <strong>推荐自选</strong>
-      ${suggestions.slice(0, 3).map((item) => `
-        <div class="watch-suggestion">
-          <div>
-            <span>${esc(item.reason || "推荐标的")}</span>
-            <strong>${esc(item.name || item.code)}</strong>
-            <p>${esc(item.code)} · ${item.rumor_count || 0}条 · 峰值${item.top_score || 0}</p>
-          </div>
-          <button class="ghost watch-add-suggested" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}">加入</button>
-        </div>
-      `).join("") || `<p class="empty">暂无推荐自选，等待社区产生更多高分标的。</p>`}
-    </div>
-  `;
-  $("#watchOnlyBtn")?.addEventListener("click", () => {
-    state.watchOnly = !state.watchOnly;
-    renderWatchPanel();
-    loadRumors(true);
-  });
-  $("#watchManualAdd")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const code = form.elements.code.value.trim();
-    const name = form.elements.name.value.trim();
-    if (!code && !name) return;
-    addWatch({ code, name });
-    form.reset();
-  });
-  $$("#watchPanel .watch-focus").forEach((btn) => btn.addEventListener("click", () => {
-    state.watchOnly = false;
-    $("#searchInput").value = btn.dataset.query || "";
-    switchView("feed");
-    renderWatchPanel();
-    loadRumors(true);
-  }));
-  $$("#watchPanel .watch-remove").forEach((btn) => btn.addEventListener("click", () => removeWatch(btn.dataset.code)));
-  $$("#watchPanel .watch-add-suggested").forEach((btn) => btn.addEventListener("click", () => addWatch({ code: btn.dataset.code, name: btn.dataset.name })));
-  $("#watchPanel .watch-digest-action")?.addEventListener("click", () => runWatchDigestAction(digest.action || {}, suggestions));
+  // panel removed
 }
+
 
 function runWatchDigestAction(action, suggestions = []) {
   if (action.key === "add_suggested") {
@@ -1087,45 +467,9 @@ async function setProviderFollow(providerId, follow) {
 }
 
 function renderGrowthPanel() {
-  const data = state.growth || {};
-  const summary = data.summary || {};
-  const ledger = data.ledger || {};
-  const totals = ledger.totals || {};
-  const missions = (data.missions || []).slice(0, 4);
-  const next = summary.next_action;
-  $("#growthPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">NEXT STEP</span>
-        <h3>成长任务</h3>
-      </div>
-      <strong>${summary.completed || 0}/${summary.total || 0}</strong>
-    </div>
-    <div class="mission-progress"><b style="width:${Number(summary.completion_rate || 0)}%"></b></div>
-    <div class="growth-ledger-mini">
-      <div><span>总XP</span><strong>${totals.total_xp || 0}</strong></div>
-      <div><span>求证</span><strong>${totals.participation_xp || 0}</strong></div>
-      <div><span>邀请</span><strong>${totals.referral_xp || 0}</strong></div>
-    </div>
-    <div class="growth-ledger-sources">
-      ${(ledger.sources || []).map((item) => `<span>${esc(item.label)} ${item.value || 0}</span>`).join("")}
-    </div>
-    <div class="growth-ledger-recent">
-      ${(ledger.entries || []).slice(0, 3).map((item) => `
-        <div class="${esc(item.kind || "")}">
-          <span>${esc(item.label || "")}</span>
-          <strong>${esc(item.title || "")}</strong>
-          <em>+${Number(item.value || 0)} ${esc(item.unit || "XP")}</em>
-        </div>
-      `).join("") || `<p class="empty">完成投稿、求证或邀请后，这里会沉淀成长账本。</p>`}
-    </div>
-    <div class="mission-list">
-      ${missions.map(renderMission).join("")}
-    </div>
-    ${next ? `<button class="ghost mission-jump" data-view-jump="${esc(next.cta_view || "feed")}">${esc(next.title)}</button>` : `<button class="ghost mission-jump" data-view-jump="rank">查看信息源榜</button>`}
-  `;
-  $$("#growthPanel [data-view-jump]").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.viewJump)));
+  // panel removed
 }
+
 
 function renderSourceUpgradePanel() {
   const root = $("#sourceUpgradePanel");
@@ -1339,69 +683,9 @@ function renderInviteLanding() {
 }
 
 function renderActivationPanel() {
-  const data = state.activation || {};
-  const summary = data.summary || {};
-  const rewards = data.starter_rewards || [];
-  const steps = data.next_steps || [];
-  const playbook = data.activation_playbook || {};
-  const primary = playbook.primary_action || {};
-  const starterWatch = data.starter_watchlist || {};
-  const starterItems = starterWatch.items || [];
-  $("#activationPanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">START HERE</span>
-        <h3>${data.registered ? "情报账户" : "新用户激活"}</h3>
-      </div>
-      <strong>${summary.completed_steps || 0}/${summary.total_steps || 0}</strong>
-    </div>
-    <p>${esc(data.headline || "注册后保留成长、关注和解锁记录。")}</p>
-    <div class="activation-metrics">
-      <div><span>S/A线索</span><strong>${summary.high_value_rumors || 0}</strong></div>
-      <div><span>高价值待解</span><strong>${summary.locked_high_value || 0}</strong></div>
-      <div><span>直看额度</span><strong>${summary.direct_quota || 0}</strong></div>
-    </div>
-    <div class="activation-playbook ${esc(playbook.stage || "visitor")}">
-      <div>
-        <span>当前阶段</span>
-        <strong>${esc(playbook.label || "建立使用闭环")}</strong>
-        <p>${(playbook.value || []).slice(0, 2).map(esc).join(" · ")}</p>
-      </div>
-      <i><b style="width:${Number(playbook.progress || 0)}%"></b></i>
-      <button type="button" class="ghost activation-primary" data-key="${esc(primary.key || "feed")}" data-view="${esc(primary.view || "feed")}">${esc(primary.label || "继续使用")}</button>
-    </div>
-    <div class="activation-rewards">
-      ${rewards.slice(0, 3).map((item) => `
-        <div><span>${esc(item.label)}</span><strong>${esc(item.value)}</strong></div>
-      `).join("")}
-    </div>
-    <div class="activation-watch">
-      <div>
-        <strong>${esc(starterWatch.headline || "建立个人信号流")}</strong>
-        <p>${esc(starterWatch.summary || "关注标的后，首页会聚合你的自选线索。")}</p>
-      </div>
-      <div class="activation-watch-list">
-        ${starterItems.slice(0, 3).map((item) => `
-          <button type="button" class="activation-watch-item" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}">
-            <span>${esc(item.reason || "推荐")}</span>
-            <strong>${esc(item.name || item.code)}</strong>
-            <small>${esc(item.code)} · ${item.rumor_count || 0}条 · 峰值${item.top_score || 0}</small>
-          </button>
-        `).join("") || `<p class="empty">暂无可推荐标的，先浏览高分线索。</p>`}
-      </div>
-    </div>
-    <div class="activation-steps">
-      ${steps.slice(0, 4).map((item) => `
-        <button class="activation-step ${item.completed ? "done" : ""}" data-key="${esc(item.key)}" data-view="${esc(item.view || "feed")}">
-          <span>${item.completed ? "✓" : ""}</span>
-          <div><strong>${esc(item.title)}</strong><p>${esc(item.description)}</p></div>
-        </button>
-      `).join("")}
-    </div>
-  `;
-  $$("#activationPanel .activation-step, #activationPanel .activation-primary").forEach((btn) => btn.addEventListener("click", () => runActivationAction(btn)));
-  $$("#activationPanel .activation-watch-item").forEach((btn) => btn.addEventListener("click", () => addWatch({ code: btn.dataset.code, name: btn.dataset.name })));
+  // panel removed
 }
+
 
 function runActivationAction(btn) {
   const key = btn.dataset.key;
@@ -1414,82 +698,9 @@ function runActivationAction(btn) {
 }
 
 function renderInvitePanel() {
-  const u = state.user;
-  const referral = state.referral || {};
-  const rewards = referral.rewards || state.framework?.invite_rewards || {};
-  const stats = referral.stats || {};
-  const milestones = referral.milestones || [];
-  const recent = referral.recent || [];
-  const leaders = referral.leaderboard || [];
-  const plan = referral.invite_plan || {};
-  const momentum = referral.momentum || {};
-  const code = referral.invite_code || (u && !u.is_guest ? u.invite_code || "" : "");
-  $("#invitePanel").innerHTML = `
-    <div class="block-head">
-      <div>
-        <span class="eyebrow">INVITE LOOP</span>
-        <h3>邀请中心</h3>
-      </div>
-      <strong>${stats.invite_count || 0}</strong>
-    </div>
-    <p>${esc(rewards.inviter || "成功邀请可获得 XP 和直看额度。")}</p>
-    <div class="invite-plan ${esc(plan.state || "guest")}">
-      <div>
-        <span>当前目标</span>
-        <strong>${esc(plan.headline || "建立你的邀请增长回路")}</strong>
-        <p>${esc(plan.reward || "邀请新用户可获得 XP、直看额度和源分加成。")}</p>
-      </div>
-      <i><b style="width:${Math.min(100, Number(plan.progress || 0))}%"></b></i>
-      <small>${plan.next_needed == null ? "" : `还差 ${plan.next_needed} 人 · ${esc(plan.target || "")}`}</small>
-    </div>
-    <div class="invite-code">${code ? esc(code) : "登录后生成"}</div>
-    <button class="copy-invite" data-invite="${esc(`${location.origin}/?invite=${code}`)}" ${code ? "" : "disabled"}>复制邀请链接</button>
-    <button class="ghost copy-invite-copy" data-copy="${esc(`${plan.share_copy || ""}${code ? ` ${location.origin}/?invite=${code}` : ""}`)}" ${plan.share_copy ? "" : "disabled"}>复制邀请话术</button>
-    <div class="invite-momentum">
-      <div>
-        <span>已获得</span>
-        <strong>${esc(momentum.earned_value || `${stats.reward_xp || 0} XP + ${stats.reward_quota || 0} 次直看`)}</strong>
-      </div>
-      <div>
-        <span>下一档奖励</span>
-        <strong>${esc(momentum.next_reward || plan.reward || "邀请越多，源分越高")}</strong>
-      </div>
-      <div>
-        <span>下一步</span>
-        <strong>${momentum.next_needed == null ? "继续邀请" : `还差 ${momentum.next_needed} 人`}</strong>
-      </div>
-    </div>
-    <div class="invite-action-strip">
-      ${(momentum.actions || []).slice(0, 3).map((item) => `
-        <button type="button" class="ghost invite-momentum-action" data-key="${esc(item.key || "")}" data-copy="${esc(item.key === "copy_pitch" ? `${plan.share_copy || ""}${code ? ` ${location.origin}/?invite=${code}` : ""}` : `${location.origin}/?invite=${code}`)}">
-          <strong>${esc(item.label || "邀请")}</strong>
-          <span>${esc(item.detail || "")}</span>
-        </button>
-      `).join("")}
-    </div>
-    <div class="invite-stats">
-      <div><span>奖励XP</span><strong>${stats.reward_xp || 0}</strong></div>
-      <div><span>直看额度</span><strong>${stats.reward_quota || 0}</strong></div>
-      <div><span>下一档</span><strong>${stats.next_needed == null ? "满级" : `还差${stats.next_needed}`}</strong></div>
-    </div>
-    <div class="invite-milestones">
-      ${milestones.slice(0, 4).map((item) => `
-        <div class="${item.completed ? "done" : ""}">
-          <span>${item.target}</span>
-          <p>${esc(item.title)}</p>
-        </div>
-      `).join("")}
-    </div>
-    <div class="invite-mini-list">
-      ${(recent.length ? recent : leaders).slice(0, 3).map((item) => `
-        <div>
-          <span>${esc(item.invitee_name || item.display_name || "社区成员")}</span>
-          <strong>${item.reward_xp ? `+${item.reward_xp}XP` : `${item.invite_count || 0}邀`}</strong>
-        </div>
-      `).join("") || `<p class="empty">邀请记录会在这里沉淀。</p>`}
-    </div>
-  `;
+  // panel removed
 }
+
 
 function renderDimensionScores(scores) {
   const items = scores?.items || [];
@@ -1511,27 +722,27 @@ function renderRecentBacktestShowcase(showcase) {
   if (!root) return;
   const items = showcase.items || [];
   root.innerHTML = `
-    <div class="showcase-head">
-      <div>
-        <strong>${esc(showcase.headline || "近3个交易日高回测信号")}</strong>
-        <p>${esc(showcase.summary || "历史表现用于展示社区筛选能力，实时仍需看当日高价值信号。")}</p>
-      </div>
-      <small>${(showcase.dates || []).map(esc).join(" / ")}</small>
+    <div class="showcase-head" style="margin-bottom:8px">
+      <strong>近3个交易日高收益信号</strong>
+      <small style="color:var(--muted);font-size:12px">${(showcase.dates || []).map(esc).join(" / ")}</small>
     </div>
-    <div class="showcase-list">
-      ${items.slice(0, 4).map((entry) => {
-        const item = entry.rumor || {};
-        return `
-          <button type="button" class="showcase-item" data-id="${item.id}">
-            <span class="badge">${esc(item.ai_tier || "")}${item.ai_score || ""}</span>
-            <div>
-              <strong>${esc(item.target || "历史信号")}</strong>
-              <small>综合 ${entry.dimension_composite ?? "-"} · 回测分位 ${entry.signal_value ?? "-"} · T+1 ${pct(entry.ret_t1_1)} · T+5 ${pct(entry.ret_t1_5)} · T+20 ${pct(entry.ret_t1_20)}</small>
-            </div>
-          </button>
-        `;
-      }).join("") || `<p class="empty">暂无近3个交易日回测样本。</p>`}
-    </div>
+    ${items.map((entry) => {
+      const item = entry.rumor || {};
+      const ret = entry.ret_t1_1;
+      const retStr = ret != null ? `${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(1)}%` : "-";
+      const retClass = ret != null ? (ret >= 0 ? "pos" : "neg") : "";
+      return `
+        <button type="button" class="showcase-item" data-id="${item.id}">
+          <span class="badge">${esc(item.ai_tier || "")}${item.ai_score || ""}</span>
+          <div class="showcase-item-body">
+            <strong>${esc(item.target || "历史信号")}</strong>
+            <span>${esc(item.logic || "")}</span>
+          </div>
+          <span class="showcase-ret ${retClass}">${retStr}</span>
+          <span class="showcase-date">${esc(item.recommendation_date || "")}</span>
+        </button>
+      `;
+    }).join("") || `<p class="empty">暂无近3个交易日回测样本。</p>`}
   `;
   $$("#recentBacktestShowcase .showcase-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id)));
 }
@@ -1734,62 +945,30 @@ async function selectTier(tier, allowed) {
 
 function renderCard(item) {
   const locked = item.hidden ? "locked" : "";
-  const reasons = item.ai_reasons.map((r) => `<span class="chip">${esc(r)}</span>`).join("");
-  const dims = item.score_dimensions || {};
-  const discussion = item.discussion || {};
-  const moderation = item.moderation || discussion.moderation || {};
-  const outcome = item.outcome || {};
   const rights = item.rights || {};
-  const risk = item.risk_analysis || {};
-  const tasks = item.verification_tasks || [];
-  const unlockPath = item.unlock_path || {};
-  const dimBars = Object.entries({
-    specificity: "明确",
-    evidence: "密度",
-    freshness: "时效",
-    verifiability: "验证",
-  }).map(([key, label]) => {
-    const value = Math.max(0, Math.min(30, Number(dims[key] || 0)));
-    return `<span title="${label} ${value}"><i style="width:${Math.min(100, value / 30 * 100)}%"></i></span>`;
-  }).join("");
+  const outcome = item.outcome || {};
+  const hasPending = !outcome.state || outcome.state === "pending" || outcome.state === "skipped" || outcome.state === "no_code";
+  const ret1 = outcome.avg_ret != null ? outcome.avg_ret : null;
+  const retLabel = ret1 != null
+    ? `<span class="card-ret ${ret1 >= 0 ? "pos" : "neg"}">${ret1 >= 0 ? "+" : ""}${(ret1 * 100).toFixed(1)}%</span>`
+    : "";
+  const actionBtn = item.unlocked
+    ? `<button class="open-btn card-row-btn" data-id="${item.id}">详情</button>`
+    : `<button class="unlock-btn card-row-btn ghost" data-id="${item.id}">解锁</button>`;
   return `
     <article class="card ${locked}" data-rights-fp="${esc(rights.fingerprint || "")}" data-rights-scope="${esc(rights.scope || "rumor-content")}">
       <span class="rights-mark" aria-hidden="true">${esc(rights.mark || "")}:${esc(rights.fingerprint || "")}</span>
       <div class="card-head">
-        <div>
-          <div class="target">${esc(item.target)}</div>
-          <small>${esc(item.submitter_name || "社区信息源")}</small>
-        </div>
         <div class="badge">${esc(item.ai_tier)}${item.ai_score}</div>
+        <div class="target">${esc(item.target)}</div>
+        ${retLabel}
       </div>
       <p class="logic">${esc(item.logic)}</p>
-      ${renderDimensionScores(item.dimension_scores)}
-      ${renderValueVerdict(item.value_verdict)}
-      ${renderScoreExplain(item.score_explanation)}
-      ${renderProviderSnapshot(item.provider)}
-      ${renderCardIntelStrip(item)}
-      <div class="score-bars">${dimBars}</div>
-      <div class="meta">
-        <span class="chip">${esc(item.recommendation_date)}</span>
-        <span class="chip">${item.source === "reference" ? "历史样本" : "社区分享"}</span>
-        ${item.watched ? `<span class="chip watch-chip">自选命中</span>` : ""}
-        ${outcome.label ? `<span class="chip outcome-chip ${esc(outcome.state || "pending")}">${esc(outcome.label)}</span>` : ""}
-        ${tasks.length ? `<span class="chip verify-chip">求证 ${tasks.length}</span>` : ""}
-        ${risk.level && risk.level !== "clear" ? `<span class="chip risk-chip">${esc(risk.label || "风控提示")}</span>` : ""}
-        ${moderation.reports ? `<span class="chip risk-chip">${trustLabel(moderation.trust_state)} ${moderation.reports}</span>` : ""}
-        ${item.effective_score < item.ai_score ? `<span class="chip risk-chip">有效分 ${item.effective_score}</span>` : ""}
-        ${reasons}
+      <div class="card-row-meta">
+        <span>${esc(item.recommendation_date)}</span>
+        ${!hasPending && outcome.label ? `<span class="chip outcome-chip ${esc(outcome.state || "")}">${esc(outcome.label)}</span>` : ""}
       </div>
-      <div class="discussion-strip">
-        <span>有用 ${discussion.useful || 0}</span>
-        <span>求证 ${discussion.verify || 0}</span>
-        <span>存疑 ${discussion.doubt || 0}</span>
-        <span>讨论 ${discussion.comments || 0}</span>
-      </div>
-      ${item.unlocked ? "" : renderUnlockPath(unlockPath, item.id)}
-      <div class="card-actions">
-        ${item.unlocked ? `<button class="open-btn" data-id="${item.id}">查看详情</button>` : `<button class="unlock-btn" data-id="${item.id}">使用额度直看</button>`}
-      </div>
+      ${actionBtn}
     </article>
   `;
 }
@@ -1828,45 +1007,24 @@ async function openRumor(id) {
   const bt = data.backtest;
   const item = data.item;
   const rights = item.rights || {};
-  const envelope = data.rights_envelope || state.rightsEnvelope || {};
-  const forensic = rights.forensic_signature || {};
   state.activeRumorId = item.id;
-  $("#rumorDialog").dataset.rightsFp = rights.fingerprint || "";
-  $("#rumorDialog").dataset.envelopeFp = envelope.fingerprint || "";
-  $("#rumorDialog").dataset.forensicSignature = forensic.signature || "";
+  $("#detailRightsMark").textContent = rights.mark || "";
   $("#detailTier").textContent = `${item.ai_tier}${item.ai_score}`;
   $("#detailTarget").textContent = item.target;
   $("#detailMeta").innerHTML = `
     <span>${esc(item.recommendation_date)}</span>
-    <span>${esc(item.submitter_name || "社区信息源")}</span>
-    <span>${item.source === "reference" ? "历史样本" : "社区分享"}</span>
     ${item.institution ? `<span>${esc(item.institution)}</span>` : ""}
+    <span>${esc(item.submitter_name || "社区信息源")}</span>
   `;
-  $("#detailProvider").innerHTML = renderProviderSnapshot(item.provider, "detail");
-  $("#detailVerdict").innerHTML = renderValueVerdict(item.value_verdict, "detail");
-  $("#detailVerdict").innerHTML += renderRiskAnalysis(item.risk_analysis || {});
-  $("#detailVerdict").innerHTML += renderScoreExplain(item.score_explanation, "detail");
-  $("#detailRightsMark").textContent = `${rights.mark || ""}:${rights.fingerprint || ""}:${forensic.zero_width || ""}`;
-  renderWatchTargets(item.stock_codes || [], item.watched);
-  renderDecisionBrief(item.decision_brief || {});
-  renderConsensusSnapshot(item.consensus_snapshot || {});
+  $("#detailBacktest").innerHTML = bt && bt.ret_t1_1 != null ? `
+    <span class="outcome-pill ${esc(bt.outcome?.state || "pending")}">${esc(bt.outcome?.label || "待验证")}</span>
+    <span>T+1持1日 <strong class="${bt.ret_t1_1 >= 0 ? "pos" : "neg"}">${pct(bt.ret_t1_1)}</strong></span>
+    ${bt.ret_t1_5 != null ? `<span>T+1持5日 <strong>${pct(bt.ret_t1_5)}</strong></span>` : ""}
+    ${bt.ret_t1_20 != null ? `<span>T+1持20日 <strong>${pct(bt.ret_t1_20)}</strong></span>` : ""}
+    <small>${esc(bt.outcome?.summary || "")}</small>
+  ` : "";
   $("#detailLogic").textContent = item.logic || "";
   $("#detailPoints").innerHTML = (item.key_points || []).map((p) => `<span>${esc(p)}</span>`).join("");
-  renderVerificationTasks(item.verification_tasks || [], item.verification_bounties || []);
-  renderVerificationLedger(item.verification_ledger || []);
-  $("#detailScores").innerHTML = renderScoreDimensions(item.score_dimensions || {});
-  $("#detailRaw").textContent = `${item.raw_content || ""}${forensic.zero_width || ""}`;
-  $("#detailBacktest").innerHTML = bt ? `
-    <strong>回测</strong>
-    <span class="outcome-pill ${esc(bt.outcome?.state || "pending")}">${esc(bt.outcome?.label || "待验证")}</span>
-    <span>T+1持1日 ${pct(bt.ret_t1_1)}</span>
-    <span>T+1持5日 ${pct(bt.ret_t1_5)}</span>
-    <span>T+1持20日 ${pct(bt.ret_t1_20)}</span>
-    <span>信号价值 ${bt.signal_value != null ? bt.signal_value.toFixed(1) : "-"}</span>
-    <small>${esc(bt.outcome?.summary || "")}</small>
-    <small>${esc(bt.details || bt.status || "")}</small>
-  ` : `<strong>回测</strong><span>暂无</span>`;
-  renderModerationPanel(item.moderation || item.discussion?.moderation || {});
   renderDetailDiscussion(item.discussion || {}, data.comments || []);
   $("#rumorDialog").showModal();
 }
@@ -2861,8 +2019,7 @@ function wire() {
   }
   $("#searchInput").addEventListener("input", debounce(() => loadRumors(true), 250));
   $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; loadRumors(true); });
-  $("#refreshFeed").addEventListener("click", async () => { await loadCommunityInsight(); await loadCommunityRooms(); await loadActivationCenter(); await loadActivityFeed(); await loadExchangeDesk(); await loadModerationSummary(); await loadReferralCenter(); await loadDailyStats(); });
-  $("#loadHighlights").addEventListener("click", loadCommunityInsight);
+  $("#refreshFeed").addEventListener("click", async () => { await loadCommunityInsight(); await loadDailyStats(); });
   $("#submitForm").addEventListener("submit", submitRumor);
   $("#submitResult").addEventListener("click", (e) => {
     if (e.target.closest(".submit-register-now")) {
@@ -2943,7 +2100,6 @@ installCopyWatermark();
 setDefaultRecommendationDate();
 renderStockRows([]);
 loadMe().then(async () => {
-  await Promise.all([loadInvitePreviewFromUrl(), loadValueFramework(), loadCommunityInsight(), loadCommunityRooms(), loadActivationCenter(), loadGrowthCenter(), loadWatchlist(), loadProviderFollows(), loadActivityFeed(), loadExchangeDesk(), loadModerationSummary(), loadReferralCenter()]);
-  renderInvitePanel();
-  await loadDailyStats();
+  // 并行加载社区数据和情报流
+  await Promise.all([loadCommunityInsight(), loadDailyStats()]);
 });

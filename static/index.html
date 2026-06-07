@@ -48,59 +48,11 @@
         <section id="inviteLanding" class="invite-landing"></section>
 
         <section class="view active" id="feedView">
-          <div class="command-center">
-            <section class="market-pulse">
-              <div>
-                <span class="eyebrow">COMMUNITY INTEL</span>
-                <h2>今日值得复盘的 A 股情报</h2>
-                <p id="pulseCopy">加载社区热度和信息源表现...</p>
-                <div id="valueProof" class="value-proof"></div>
-                <div id="dailyBrief" class="daily-brief"></div>
-                <div id="dailyWorkflow" class="daily-workflow"></div>
-                <div id="opportunityDeck" class="opportunity-deck"></div>
-                <div id="bountyBoard" class="bounty-board"></div>
-                <div id="actionQueue" class="action-queue"></div>
-              </div>
-              <div class="pulse-metrics" id="pulseMetrics"></div>
-            </section>
-            <div class="side-stack">
-              <section class="activation-panel" id="activationPanel"></section>
-              <section class="invite-panel" id="invitePanel"></section>
-              <section class="growth-panel" id="growthPanel"></section>
-              <section class="watch-panel" id="watchPanel"></section>
-              <section class="provider-follow-panel" id="providerFollowPanel"></section>
-            </div>
-          </div>
-          <section class="activity-panel" id="activityPanel"></section>
-          <section class="exchange-panel" id="exchangePanel"></section>
-          <section class="trust-center-panel" id="trustCenterPanel"></section>
-          <div class="insight-grid">
-            <section class="insight-block">
-              <div class="block-head">
-                <h3>高分线索</h3>
-                <button id="loadHighlights" class="ghost">更新</button>
-              </div>
-              <div id="recentBacktestShowcase" class="backtest-showcase"></div>
-              <div id="todaySignalBoard" class="today-signal-board"></div>
-              <div id="highlightList" class="highlight-list"></div>
-            </section>
-            <section class="insight-block">
-              <div class="block-head">
-                <h3>价值机制</h3>
-                <button class="ghost" data-view-jump="rank">看榜单</button>
-              </div>
-              <div id="valueFramework" class="framework-list"></div>
-            </section>
-          </div>
-          <section class="topic-radar" id="topicRadar"></section>
-          <section class="community-rooms" id="communityRooms"></section>
-          <div class="section-head">
-            <div>
-              <h2>当日情报等级</h2>
-              <p>按 S/A/B/C 聚合当日线索，贡献度采用 30 天半衰期。</p>
-            </div>
+          <div class="section-head" style="margin-bottom:8px">
+            <div><h2>情报流</h2></div>
             <button id="refreshFeed">刷新</button>
           </div>
+          <div id="recentBacktestShowcase" class="backtest-showcase" style="margin-bottom:14px"></div>
           <div id="dailyStats" class="tier-stats"></div>
           <div id="tierPanel" class="tier-panel"></div>
           <div id="rumorGrid" class="grid"></div>
@@ -256,19 +208,9 @@
           <button id="detailClose" class="ghost">关闭</button>
         </header>
         <div id="detailMeta" class="detail-meta"></div>
-        <div id="detailVerdict" class="detail-verdict"></div>
-        <div id="detailProvider" class="detail-provider"></div>
-        <div id="detailWatchTargets" class="detail-watch-targets"></div>
-        <section id="detailDecisionBrief" class="decision-brief"></section>
-        <section id="detailConsensus" class="consensus-snapshot"></section>
+        <div id="detailBacktest" class="detail-backtest"></div>
         <p id="detailLogic" class="detail-logic"></p>
         <div id="detailPoints" class="detail-points"></div>
-        <section id="detailTasks" class="verification-tasks"></section>
-        <section id="detailLedger" class="verification-ledger"></section>
-        <div id="detailScores" class="detail-scores"></div>
-        <pre id="detailRaw"></pre>
-        <div id="detailBacktest" class="detail-backtest"></div>
-        <section id="detailModeration" class="moderation-panel"></section>
         <section class="discussion-panel">
           <div class="block-head">
             <h3>社区求证</h3>

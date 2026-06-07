@@ -2708,10 +2708,48 @@ def public_rumor(
     watched_codes: set[str] | None = None,
     viewer_id: int | None = None,
     viewer: sqlite3.Row | None = None,
+    slim: bool = False,
 ) -> dict[str, Any]:
     hidden = not unlocked
     stocks = rumor_stock_items(row)
     watch_hits = [item for item in stocks if item["code"] and watched_codes and item["code"] in watched_codes]
+    watched = bool(watch_hits)
+    # slim mode: skip all heavy computations, only return feed-list fields
+    if slim:
+        ret1 = row["ret_t1_1"] if "ret_t1_1" in row.keys() else None
+        avg_ret: float | None = None
+        if ret1 is not None:
+            valid = [float(v) for v in [ret1, row["ret_t1_5"], row["ret_t1_20"]] if v is not None]  # type: ignore[union-attr]
+            avg_ret = sum(valid) / len(valid) if valid else None
+        if ret1 is None:
+            outcome: dict[str, Any] = {"state": "pending", "label": "待回测", "score": None, "avg_ret": None, "best_ret": None, "max_drawdown": None, "summary": ""}
+        else:
+            best_ret = max(float(v) for v in [ret1, row["ret_t1_5"], row["ret_t1_20"]] if v is not None)  # type: ignore[union-attr]
+            sig = row["signal_value"] if "signal_value" in row.keys() else None
+            score_val = float(sig) if sig is not None else None
+            if (score_val and score_val >= 80) or (avg_ret and avg_ret >= 0.08) or best_ret >= 0.15:
+                state, label = "hit", "强命中"
+            elif (score_val and score_val >= 60) or (avg_ret and avg_ret >= 0.02):
+                state, label = "valid", "有效"
+            elif (score_val and score_val <= 25) or (avg_ret and avg_ret <= -0.04):
+                state, label = "weak", "偏弱"
+            else:
+                state, label = "neutral", "待观察"
+            outcome = {"state": state, "label": label, "score": score_val, "avg_ret": avg_ret, "best_ret": best_ret, "max_drawdown": None, "summary": ""}
+        return {
+            "id": row["id"],
+            "submitter_name": row["submitter_name"],
+            "target": row["target"] if unlocked else mask_target(row["target"]),
+            "logic": row["logic"] if unlocked else "已锁定。分享同等价值消息或提升等级后查看。",
+            "recommendation_date": row["recommendation_date"],
+            "ai_score": row["ai_score"],
+            "ai_tier": row["ai_tier"],
+            "outcome": outcome,
+            "watched": watched,
+            "unlocked": unlocked,
+            "hidden": hidden,
+            "rights": {},
+        }
     discussion = discussion or {
         "comments": 0,
         "useful": 0,
@@ -2754,7 +2792,7 @@ def public_rumor(
     bounties = verification_bounties(tasks, discussion, unlocked)
     decision = rumor_decision_brief(row, verdict, tasks, risk, outcome, moderation)
     score_explanation = rumor_score_explanation(int(row["ai_score"] or 0), dimensions, provider, discussion, moderation, risk, outcome, verdict)
-    consensus = rumor_consensus_snapshot(row, risk, outcome)
+    consensus: dict[str, Any] = {}  # skipped — not shown in simplified detail view
     access = tier_access(viewer, row["ai_tier"]) if viewer is not None else None
     if unlocked:
         unlock_path = {
@@ -3536,7 +3574,7 @@ def recent_backtest_showcase(day: str, user: sqlite3.Row, limit: int = 4) -> dic
             select distinct r.recommendation_date
             from rumors r join backtests b on b.rumor_id = r.id
             where r.recommendation_date <= ?
-              and b.signal_value is not null
+              and b.ret_t1_1 is not null
             order by r.recommendation_date desc
             limit 3
             """,
@@ -5787,17 +5825,29 @@ def list_rumors(response: Response, agu_session: str | None = Cookie(default=Non
              )
         end
     """
-    sql = f"select r.* from rumors r {report_rollup}"
+    sql = f"""
+        select r.* from rumors r
+        left join backtests b on b.rumor_id = r.id
+        {report_rollup.replace('left join', 'left join').strip()}
+    """
+    # 替换掉原有的 report_rollup join（已经在上面 sql 里了，重新构造）
+    sql = f"select r.*, b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.signal_value from rumors r left join backtests b on b.rumor_id = r.id {report_rollup}"
     if where:
         sql += " where " + " and ".join(where)
-    sql += f" order by (r.ai_score - {penalty_expr}) desc, r.ai_score desc, r.recommendation_date desc, r.id desc limit ? offset ?"
+    sql += f" order by case when b.ret_t1_1 is not null then 0 else 1 end, coalesce(b.ret_t1_1, 0) desc, (r.ai_score - {penalty_expr}) desc, r.recommendation_date desc limit ? offset ?"
     rows = query(sql, (*args, limit + 1, offset))
     has_more = len(rows) > limit
     rows = rows[:limit]
     unlocked = user_unlocked_ids(user)
     stats = discussion_stats([r["id"] for r in rows], user["id"])
     watched_codes = watched_codes_for_user(user["id"])
-    items = [public_rumor(r, can_view(user, r, unlocked), stats.get(r["id"]), watched_codes, user["id"], user) for r in rows]
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    # 历史消息（非当天）按评分排序后前 40% 强制免费可见
+    historic_ids = [r["id"] for r in rows if str(r["recommendation_date"] or "")[:10] < today]
+    free_count = max(1, len(historic_ids) * 4 // 10)
+    free_ids = set(historic_ids[:free_count])
+    items = [public_rumor(r, can_view(user, r, unlocked) or r["id"] in free_ids, stats.get(r["id"]), watched_codes, user["id"], user, slim=True) for r in rows]
     payload_key = ",".join(str(item["id"]) for item in items) or "empty"
     return {
         "items": items,
