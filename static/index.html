@@ -22,7 +22,7 @@
         <nav class="nav">
           <button class="active" data-view="feed">情报流</button>
           <button data-view="submit">分享消息</button>
-          <button data-view="backtest">历史回测</button>
+          <button data-view="watch">自选股</button>
           <button data-view="rank">用户评分</button>
         </nav>
         <section class="profile" id="profile"></section>
@@ -121,31 +121,15 @@
           <div id="submitResult" class="result"></div>
         </section>
 
-        <section class="view" id="backtestView">
+        <section class="view" id="watchView">
           <div class="section-head">
             <div>
-              <h2>历史回测</h2>
-              <p>基于本地 A 股日线，按 T+1 开盘买入考察推荐后真实表现；多股票取平均。</p>
+              <h2>自选股</h2>
+              <p>登录后添加自选股，并按时间倒序查看相关历史情报。</p>
             </div>
-            <button id="refreshBacktest">重新计算</button>
+            <button id="refreshWatch">刷新</button>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>标的</th>
-                  <th>评分</th>
-                  <th>代码</th>
-                  <th>T+1持1日</th>
-                  <th>T+1持5日</th>
-                  <th>T+1持20日</th>
-                  <th>信号价值</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody id="backtestRows"></tbody>
-            </table>
-          </div>
+          <section id="watchPage" class="watch-page"></section>
         </section>
 
         <section class="view" id="rankView">
@@ -225,7 +209,7 @@
         <div id="detailPoints" class="detail-points"></div>
         <section class="discussion-panel">
           <div class="block-head">
-            <h3>社区求证</h3>
+            <h3>社区反馈</h3>
             <div id="detailReactions" class="reaction-row"></div>
           </div>
           <form id="commentForm" class="comment-form">

@@ -76,6 +76,17 @@ function renderAuthButtons() {
   $("#logoutBtn").style.display = loggedIn ? "" : "none";
 }
 
+function isLoggedIn() {
+  return !!state.user && !state.user.is_guest;
+}
+
+function promptLogin(message = "登录后才能添加自选股。") {
+  $("#authMsg").textContent = message;
+  $("#regInvite").value = state.inviteCodeFromUrl || $("#regInvite").value || "";
+  setRegMode("login");
+  $("#authDialog").showModal();
+}
+
 function renderRadar(radar) {
   if (!radar) return "";
   const labels = ["活跃度", "进攻性", "防守性", "独特性"];
@@ -138,7 +149,7 @@ function switchView(view) {
   $$(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $$(".view").forEach((v) => v.classList.remove("active"));
   $(`#${view}View`).classList.add("active");
-  if (view === "backtest") loadBacktests();
+  if (view === "watch") loadWatchPage();
   if (view === "rank") {
     loadSourceUpgradeCenter();
     loadLeaderboard();
@@ -379,7 +390,12 @@ async function loadSourceUpgradeCenter() {
 }
 
 async function loadWatchlist() {
-  // panel removed
+  if (!isLoggedIn()) {
+    state.watchlist = null;
+    if (state.view === "watch") await loadWatchPage();
+    return;
+  }
+  if (state.view === "watch") await loadWatchPage();
 }
 
 
@@ -411,22 +427,85 @@ function runWatchDigestAction(action, suggestions = []) {
   loadRumors(true);
 }
 
+async function loadWatchPage() {
+  const root = $("#watchPage");
+  if (!root) return;
+  if (!isLoggedIn()) {
+    state.watchlist = null;
+    root.innerHTML = `
+      <section class="watch-login">
+        <h3>登录后启用自选股</h3>
+        <p>自选股会保存到账号，并汇总该股票的所有历史情报。</p>
+        <button type="button" id="watchLoginBtn">登录/注册</button>
+      </section>
+    `;
+    $("#watchLoginBtn")?.addEventListener("click", () => promptLogin("登录后才能查看自选股。"));
+    return;
+  }
+  root.innerHTML = `<p class="empty">自选股加载中…</p>`;
+  try {
+    const data = await api("/api/watchlist/history");
+    state.watchlist = data;
+    renderWatchPage(data);
+  } catch (err) {
+    root.innerHTML = `<p class="empty">${esc(err.message || "自选股加载失败")}</p>`;
+  }
+}
+
+function renderWatchPage(data) {
+  const items = data.items || [];
+  $("#watchPage").innerHTML = `
+    <div class="watch-page-summary">
+      <div><span>自选股</span><strong>${items.length}</strong></div>
+      <div><span>历史情报</span><strong>${data.signal_total || 0}</strong></div>
+    </div>
+    ${items.map(renderWatchStock).join("") || `<p class="empty">暂无自选股。在首页信息流点击股票代码右侧的加号添加。</p>`}
+  `;
+  $$("#watchPage .watch-remove").forEach((btn) => btn.addEventListener("click", () => removeWatch(btn.dataset.code)));
+  $$("#watchPage .watch-signal").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id).catch((err) => alert(err.message || "详情加载失败"))));
+}
+
+function renderWatchStock(item) {
+  const signals = item.signals || [];
+  return `
+    <section class="watch-stock">
+      <header>
+        <div>
+          <h3>${esc(item.name || item.code)} <span>${esc(item.code || "")}</span></h3>
+          <p>${signals.length} 条历史情报${item.latest_date ? ` · 最新 ${esc(item.latest_date)}` : ""}</p>
+        </div>
+        <button type="button" class="ghost watch-remove" data-code="${esc(item.code || "")}">移除</button>
+      </header>
+      <div class="watch-signal-list">
+        ${signals.map(renderWatchSignal).join("") || `<p class="empty">暂无历史情报。</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderWatchSignal(item) {
+  const codes = (item.stock_codes || []).map((stock) => stock.code).filter(Boolean).join(" / ");
+  return `
+    <button type="button" class="watch-signal" data-id="${item.id}">
+      <span class="badge">${esc(item.ai_tier || "")}</span>
+      <div>
+        <strong>${esc(item.target || "情报")}${codes ? `<em>${esc(codes)}</em>` : ""}</strong>
+        <p>${esc(item.logic || "")}</p>
+        <small>${esc(item.recommendation_date || "")} · ${item.unlocked ? "可读" : "锁定"}</small>
+      </div>
+      <b>${Number(item.ai_score || 0)}</b>
+    </button>
+  `;
+}
+
 async function addWatch(item) {
-  if (state.user?.is_guest) {
-    $("#regInvite").value = state.inviteCodeFromUrl || $("#regInvite").value || "";
-    setRegMode("reg");
-    $("#authDialog").showModal();
+  if (!isLoggedIn()) {
+    promptLogin("登录后才能添加自选股。");
     return;
   }
   try {
     await api("/api/watchlist", { method: "POST", body: JSON.stringify(item) });
-    await loadWatchlist();
-    await loadGrowthCenter();
-    await loadCommunityInsight();
-    await loadCommunityRooms();
-    await loadActivityFeed();
-    await loadExchangeDesk();
-    await loadModerationSummary();
+    if (state.view === "watch") await loadWatchPage();
     await loadRumors(true);
   } catch (err) {
     alert(err.message);
@@ -436,13 +515,7 @@ async function addWatch(item) {
 async function removeWatch(code) {
   try {
     await api(`/api/watchlist/${encodeURIComponent(code)}`, { method: "DELETE" });
-    await loadWatchlist();
-    await loadGrowthCenter();
-    await loadCommunityInsight();
-    await loadCommunityRooms();
-    await loadActivityFeed();
-    await loadExchangeDesk();
-    await loadModerationSummary();
+    if (state.view === "watch") await loadWatchPage();
     await loadRumors(true);
   } catch (err) {
     alert(err.message);
@@ -730,20 +803,29 @@ function renderRecentBacktestShowcase(showcase) {
       const retStr = ret != null ? `${ret >= 0 ? "+" : ""}${(ret * 100).toFixed(1)}%` : "-";
       const retClass = ret != null ? (ret >= 0 ? "pos" : "neg") : "";
       const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean).join(" / ") : "";
+      const firstStock = item.unlocked ? (item.stock_codes || []).find((stock) => stock.code) : null;
+      const watchAdd = firstStock
+        ? `<button type="button" class="watch-add-btn showcase-watch-add" data-code="${esc(firstStock.code)}" data-name="${esc(firstStock.name || firstStock.code)}" title="加入自选股">+</button>`
+        : "";
       return `
-        <button type="button" class="showcase-item" data-id="${item.id}">
+        <article class="showcase-item" data-id="${item.id}">
           <span class="badge">${esc(item.ai_tier || "")}</span>
           <div class="showcase-item-body">
-            <strong>${esc(item.target || "历史信号")}${codes ? `<em class="stock-code">${esc(codes)}</em>` : ""}</strong>
+            <strong>${esc(item.target || "历史信号")}${codes ? `<em class="stock-code">${esc(codes)}</em>` : ""}${watchAdd}</strong>
             <span>${esc(item.logic || "")}</span>
           </div>
           <span class="showcase-ret ${retClass}">${retStr}</span>
           <span class="showcase-date">${esc(item.recommendation_date || "")}</span>
-        </button>
+        </article>
       `;
     }).join("") || `<p class="empty">暂无近3个交易日回测样本。</p>`}
   `;
-  $$("#recentBacktestShowcase .showcase-item").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id).catch((err) => alert(err.message || "详情加载失败"))));
+  $$("#recentBacktestShowcase .showcase-item").forEach((item) => item.addEventListener("click", () => openRumor(item.dataset.id).catch((err) => alert(err.message || "详情加载失败"))));
+  $$("#recentBacktestShowcase .showcase-watch-add").forEach((btn) => btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    addWatch({ code: btn.dataset.code, name: btn.dataset.name });
+  }));
 }
 
 function renderTodaySignalBoard(board) {
@@ -756,7 +838,7 @@ function renderTodaySignalBoard(board) {
     <div class="today-signal-head">
       <div>
         <strong>${esc(board.headline || "当日普通信号与高价值解锁")}</strong>
-        <p>${esc(board.summary || "普通信号用于看方向，高价值线索用于重点求证。")}</p>
+        <p>${esc(board.summary || "普通信号用于看方向，高价值线索用于重点核验。")}</p>
       </div>
       <button type="button" class="ghost today-unlock-jump" data-tier="${esc(prompt.action?.tier || "S")}">${esc(prompt.action?.label || "解锁高价值")}</button>
     </div>
@@ -872,7 +954,7 @@ function renderCardIntelStrip(item) {
   const state = consensus.state || "isolated";
   const bountyState = topBounty?.state || "none";
   const bountyLabel = topBounty
-    ? (bountyState === "locked" ? "解锁后求证" : topBounty.action || topBounty.label || "参与求证")
+    ? (bountyState === "locked" ? "解锁后反馈" : topBounty.action || topBounty.label || "参与反馈")
     : "等待悬赏";
   const bountyReward = topBounty?.reward_xp ? `+${Number(topBounty.reward_xp)}XP` : "声誉";
   return `
@@ -883,7 +965,7 @@ function renderCardIntelStrip(item) {
         <small>${metrics.related || 0}相关 · ${metrics.sources || 0}源 · ${metrics.high_value || 0}高值</small>
       </div>
       <div class="bounty-mini ${esc(bountyState)}">
-        <span>验证悬赏</span>
+        <span>反馈任务</span>
         <strong>${esc(bountyLabel)}</strong>
         <small>${esc(bountyReward)} · ${bounties.length || 0}项任务</small>
       </div>
@@ -925,7 +1007,7 @@ function renderScoreExplain(explain, mode = "card") {
   }
   const topStrength = strengths[0]?.label || "等待强证据";
   const topGap = gaps[0]?.label || "短板较少";
-  const next = steps[0] || "进入详情求证";
+  const next = steps[0] || "进入详情反馈";
   return `
     <div class="score-explain compact">
       <div><span>强项</span><strong>${esc(topStrength)}</strong></div>
@@ -955,7 +1037,11 @@ function renderCard(item) {
     ? `<button class="open-btn card-row-btn" data-id="${item.id}">详情</button>`
     : `<button class="unlock-btn card-row-btn ghost" data-id="${item.id}">解锁</button>`;
   const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean) : [];
+  const firstStock = item.unlocked ? (item.stock_codes || []).find((stock) => stock.code) : null;
   const codeLabel = codes.length ? codes.join(" / ") : "";
+  const watchAdd = firstStock
+    ? `<button type="button" class="watch-add-btn" data-code="${esc(firstStock.code)}" data-name="${esc(firstStock.name || firstStock.code)}" title="加入自选股">+</button>`
+    : "";
   return `
     <article class="card ${locked}" data-rights-fp="${esc(rights.fingerprint || "")}" data-rights-scope="${esc(rights.scope || "rumor-content")}">
       <span class="rights-mark" aria-hidden="true">${esc(rights.mark || "")}:${esc(rights.fingerprint || "")}</span>
@@ -963,6 +1049,7 @@ function renderCard(item) {
         <div class="badge">${esc(item.ai_tier)}</div>
         <div class="target">${esc(item.target)}</div>
         ${codeLabel ? `<span class="stock-code">${esc(codeLabel)}</span>` : ""}
+        ${watchAdd}
         ${retLabel}
       </div>
       <p class="logic">${esc(item.logic)}</p>
@@ -1056,7 +1143,7 @@ function renderDecisionBrief(brief) {
     <p>${esc(brief.summary || "")}</p>
     <div class="decision-grid">
       <div><strong>看点</strong>${(brief.positives || []).map((item) => `<span>${esc(item)}</span>`).join("") || `<span>等待更多正向证据</span>`}</div>
-      <div><strong>待验证</strong>${(brief.watch_points || []).map((item) => `<span>${esc(item)}</span>`).join("") || `<span>等待社区求证</span>`}</div>
+      <div><strong>待验证</strong>${(brief.watch_points || []).map((item) => `<span>${esc(item)}</span>`).join("") || `<span>等待社区反馈</span>`}</div>
       <div><strong>风险</strong>${(brief.risks || []).map((item) => `<span>${esc(item)}</span>`).join("") || `<span>仍需独立复核</span>`}</div>
     </div>
     <footer>
@@ -1093,7 +1180,7 @@ function renderConsensusSnapshot(snapshot) {
         </button>
       `).join("") || `<span class="empty">暂无同标的高分样本。</span>`}
     </div>
-    <footer>${esc(snapshot.next_action || "等待社区进一步求证。")}</footer>
+    <footer>${esc(snapshot.next_action || "等待社区进一步反馈。")}</footer>
   `;
   $$("#detailConsensus .consensus-peer").forEach((btn) => btn.addEventListener("click", () => openRumor(btn.dataset.id)));
 }
@@ -1125,8 +1212,8 @@ function renderVerificationTasks(items, bounties = []) {
   $("#detailTasks").innerHTML = `
     <div class="block-head">
       <div>
-        <span class="eyebrow">VERIFY TASKS</span>
-        <h3>社区求证任务</h3>
+        <span class="eyebrow">FEEDBACK TASKS</span>
+        <h3>社区反馈任务</h3>
       </div>
       <span>${items.length} 项</span>
     </div>
@@ -1146,14 +1233,14 @@ function renderVerificationTasks(items, bounties = []) {
   `;
   $$("#detailTasks .task-action").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.dataset.action || "讨论";
-    if (action === "求证") reactToActiveRumor("verify");
+    if (action === "有用") reactToActiveRumor("useful");
     else if (action === "存疑") reactToActiveRumor("doubt");
     else if (action === "解锁") return;
     $("#commentInput")?.focus();
   }));
   $$("#detailTasks .bounty-action").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.dataset.action || "讨论";
-    if (action === "求证") reactToActiveRumor("verify");
+    if (action === "有用") reactToActiveRumor("useful");
     else if (action === "存疑") reactToActiveRumor("doubt");
     else $("#commentForm input[name='content']")?.focus();
   }));
@@ -1166,7 +1253,7 @@ function renderVerificationBounties(items) {
       ${(items || []).slice(0, 4).map((item) => `
         <article class="${esc(item.state || "active")}">
           <div>
-            <span>${esc(item.label || "求证悬赏")}</span>
+            <span>${esc(item.label || "反馈任务")}</span>
             <strong>+${Number(item.reward_xp || 0)} XP${Number(item.reputation_delta || 0) ? ` · 信誉 +${Number(item.reputation_delta || 0).toFixed(1)}` : ""}</strong>
           </div>
           <p>${esc(item.detail || "")}</p>
@@ -1221,7 +1308,6 @@ function renderDetailDiscussion(discussion, comments) {
   const reward = discussion.participation_reward;
   $("#detailReactions").innerHTML = [
     ["useful", "有用", discussion.useful || 0],
-    ["verify", "求证", discussion.verify || 0],
     ["doubt", "存疑", discussion.doubt || 0],
   ].map(([reaction, label, count]) => `
     <button type="button" class="reaction-btn ${(discussion.my_reactions || []).includes(reaction) ? "active" : ""}" data-reaction="${reaction}">
@@ -1238,7 +1324,7 @@ function renderDetailDiscussion(discussion, comments) {
   if (reward) {
     $("#commentList").insertAdjacentHTML("afterbegin", `
       <div class="participation-toast ${reward.awarded ? "awarded" : ""}">
-        <strong>${esc(reward.message || "求证贡献已记录")}</strong>
+        <strong>${esc(reward.message || "反馈贡献已记录")}</strong>
         <span>${Number(reward.xp_delta || 0) ? `+${Number(reward.xp_delta || 0)} XP` : "已记录"}${Number(reward.reputation_delta || 0) ? ` · 信誉 +${Number(reward.reputation_delta || 0).toFixed(1)}` : ""}</span>
       </div>
     `);
@@ -1742,13 +1828,18 @@ async function summarizeRumor() {
   try {
     const data = await api("/api/rumors/summarize", { method: "POST", body: JSON.stringify(payload) });
     renderStockRows(data.stock_codes && data.stock_codes.length ? data.stock_codes : splitTargetNames(data.target).map((name) => ({ name, code: "" })));
-    form.elements.logic.value = form.elements.logic.value || data.logic || "";
+    const currentLogic = String(form.elements.logic.value || "").trim();
+    if (!currentLogic || currentLogic.length < 12 || currentLogic === payload.raw_content?.trim().slice(0, currentLogic.length)) {
+      form.elements.logic.value = data.logic || currentLogic;
+    }
     form.elements.institution.value = form.elements.institution.value || data.institution || "";
     form.elements.recommender.value = form.elements.recommender.value || data.recommender || "";
     result.classList.add("show");
     result.innerHTML = `
       <h3>${data.summary_source === "llm" ? "AI 已提炼" : "规则已提炼"}</h3>
+      ${data.logic ? `<p><strong>核心逻辑：</strong>${esc(data.logic)}</p>` : ""}
       <p>${(data.key_points || []).join("；")}</p>
+      ${data.summary_warning ? `<p class="muted">${esc(data.summary_warning)}</p>` : ""}
     `;
     await previewScore(true);
   } catch (err) {
@@ -1816,7 +1907,6 @@ function renderProviderProfile(data) {
       <div><span>XP</span><strong>${data.xp}</strong></div>
       <div><span>信誉</span><strong>${Number(data.reputation || 0).toFixed(1)}</strong></div>
       <div><span>有用</span><strong>${data.feedback?.useful || 0}</strong></div>
-      <div><span>求证</span><strong>${data.feedback?.verify || 0}</strong></div>
       <div><span>存疑</span><strong>${data.feedback?.doubt || 0}</strong></div>
     `;
     renderProviderProof(data.provider_proof || [], data.credibility_passport || {});
@@ -1901,7 +1991,7 @@ function renderAuthIncentive(step = "login") {
     <div class="auth-incentive-head">
       <span class="eyebrow">${step === "reg" ? "MEMBER ACCESS" : "ACCOUNT VALUE"}</span>
       <strong>${headline}</strong>
-      <p>${esc(step === "reg" ? registeredCopy : activation.headline || "你的贡献、求证和邀请都会进入成长账本。")}</p>
+      <p>${esc(step === "reg" ? registeredCopy : activation.headline || "你的贡献、反馈和邀请都会进入成长账本。")}</p>
     </div>
     <div class="auth-proof-grid">
       <div><span>高价值待解</span><strong>${opportunity.cards?.find?.((item) => item.key === "locked")?.value ?? activation.summary?.locked_high_value ?? 0}</strong></div>
@@ -2035,6 +2125,15 @@ function wire() {
   $("#searchInput").addEventListener("input", debounce(() => loadRumors(true), 250));
   $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; loadRumors(true); });
   $("#refreshFeed").addEventListener("click", async () => { await loadCommunityInsight(); await loadDailyStats(); });
+  $("#refreshWatch")?.addEventListener("click", loadWatchPage);
+  $("#rumorGrid").addEventListener("click", (e) => {
+    const btn = e.target.closest(".watch-add-btn");
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      addWatch({ code: btn.dataset.code, name: btn.dataset.name });
+    }
+  });
   $("#submitForm").addEventListener("submit", submitRumor);
   $("#submitResult").addEventListener("click", (e) => {
     if (e.target.closest(".submit-register-now")) {
@@ -2062,7 +2161,6 @@ function wire() {
       renderStockRows(rows);
     }
   });
-  $("#refreshBacktest").addEventListener("click", async () => { await api("/api/backtests/refresh", { method: "POST" }); loadBacktests(); });
   $("#detailClose").addEventListener("click", () => $("#rumorDialog").close());
   $("#providerClose").addEventListener("click", () => $("#providerDialog").close());
   $("#providerFollowAction").addEventListener("click", (e) => {

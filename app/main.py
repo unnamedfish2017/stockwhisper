@@ -9,14 +9,13 @@ import re
 import secrets
 import smtplib
 import sqlite3
+import sys
 import time
 from datetime import date, datetime, timezone
 from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from urllib import request as urlrequest
-from urllib.error import HTTPError, URLError
 
 import pandas as pd
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
@@ -33,6 +32,7 @@ MARKET_ROOT = Path("/home/vscode/workspace/data/store/rsync")
 DAILY_PICKLE = MARKET_ROOT / "tonglian_data_daily" / "tonglian_data_daily.pickle"
 RAW_DAILY = MARKET_ROOT / "tonglian_data_daily" / "tonglian_stock_day_n.parquet"
 STOCK_LOOKUP_CACHE = DATA_DIR / "stock_lookup.json"
+LLM_PROVIDER_PATH = ROOT.parent / "llm_provider"
 END_DATE = pd.Timestamp(datetime.now(timezone.utc).date())
 SESSION_SECONDS = 60 * 60 * 24 * 30
 CONTRIBUTION_HALF_LIFE_DAYS = 30
@@ -84,7 +84,7 @@ class CommentPayload(BaseModel):
 
 
 class ReactionPayload(BaseModel):
-    reaction: str = Field(pattern="^(useful|verify|doubt)$")
+    reaction: str = Field(pattern="^(useful|doubt)$")
 
 
 class ReportPayload(BaseModel):
@@ -448,7 +448,7 @@ def evidence_ladder(
     ]
     total = sum(int(item["score"]) for item in levels)
     if total >= 80:
-        grade, label, summary = "A", "证据链较完整", "可以进入交换池，重点等待社区求证和回测。"
+        grade, label, summary = "A", "证据链较完整", "可以进入交换池，重点等待社区反馈和回测。"
     elif total >= 55:
         grade, label, summary = "B", "有核心线索但需补强", "建议补来源、数字或风险边界后再提高权重。"
     else:
@@ -491,7 +491,7 @@ def verification_tasks(
                 "priority": "high",
                 "status": "open",
                 "detail": f"确认{target}涉及的订单金额、客户名称、交付时间和公告或调研来源。",
-                "action": "求证",
+                "action": "有用",
             }
         )
     if any(word in text for word in ("产能", "交付", "爬坡", "扩产")):
@@ -502,7 +502,7 @@ def verification_tasks(
                 "priority": "medium",
                 "status": "open",
                 "detail": "跟踪产能释放节奏、良率、交付瓶颈和是否存在延期。",
-                "action": "求证",
+                "action": "有用",
             }
         )
     if any(word in text for word in ("业绩", "利润", "收入", "毛利", "订单")):
@@ -524,7 +524,7 @@ def verification_tasks(
                 "priority": "medium",
                 "status": "open",
                 "detail": "确认政策原文、适用范围、落地时间和是否已有市场预期。",
-                "action": "求证",
+                "action": "有用",
             }
         )
     if risk.get("level") in {"watch", "high"}:
@@ -546,7 +546,7 @@ def verification_tasks(
                 "priority": "high",
                 "status": "open",
                 "detail": "补充机构、推荐人、调研纪要、公告或产业链来源，便于后续追踪。",
-                "action": "求证",
+                "action": "有用",
             }
         )
     if not value("recommendation_date"):
@@ -568,7 +568,7 @@ def verification_tasks(
                 "priority": "medium",
                 "status": "open",
                 "detail": "补充公告、订单编号、客户、价格、产能或业绩指标中的至少一项。",
-                "action": "求证",
+                "action": "有用",
             }
         )
     if outcome.get("state") in {"pending", "no_code", "skipped"} and stock_items:
@@ -605,15 +605,15 @@ def verification_bounties(tasks: list[dict[str, Any]], discussion: dict[str, Any
         return [
             {
                 "key": "unlock_to_verify",
-                "label": "解锁后领取求证悬赏",
+                "label": "解锁后参与社区反馈",
                 "reward_xp": 0,
                 "reputation_delta": 0,
                 "action": "解锁",
                 "state": "locked",
-                "detail": "完整内容解锁后，可通过求证、存疑或评论获得成长奖励。",
+                "detail": "完整内容解锁后，可通过标记有用、存疑或评论获得成长奖励。",
             }
         ]
-    done_verify = int(discussion.get("verify") or 0)
+    done_useful = int(discussion.get("useful") or 0)
     done_doubt = int(discussion.get("doubt") or 0)
     comments = int(discussion.get("comments") or 0)
     bounties = []
@@ -625,9 +625,9 @@ def verification_bounties(tasks: list[dict[str, Any]], discussion: dict[str, Any
         if action == "存疑":
             state = "active" if done_doubt == 0 else "claimed"
             cta = "提交存疑"
-        elif action == "求证":
-            state = "active" if done_verify == 0 else "claimed"
-            cta = "参与求证"
+        elif action == "有用":
+            state = "active" if done_useful == 0 else "claimed"
+            cta = "标记有用"
         else:
             state = "active" if comments == 0 else "claimed"
             cta = "补充讨论"
@@ -1038,8 +1038,19 @@ def score_preview(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def provider_grade_components(xp: int, reputation: float, contribution: float, invite_count: int = 0, feedback_score: float = 0.0) -> dict[str, float]:
+    return {
+        "xp": min(24.0, max(0.0, float(xp or 0)) / 20),
+        "contribution": min(28.0, (max(0.0, float(contribution or 0)) ** 0.5) * 2.2),
+        "reputation": min(18.0, max(0.0, float(reputation or 0) - 50.0) / 2),
+        "invite": min(10.0, max(0, int(invite_count or 0)) * 1.5),
+        "feedback": min(20.0, max(0.0, float(feedback_score or 0))),
+    }
+
+
 def provider_grade(xp: int, reputation: float, contribution: float, invite_count: int = 0, feedback_score: float = 0.0) -> dict[str, Any]:
-    score = min(100.0, xp / 14 + contribution / 2 + reputation / 3 + invite_count * 2 + feedback_score)
+    parts = provider_grade_components(xp, reputation, contribution, invite_count, feedback_score)
+    score = min(100.0, sum(parts.values()))
     if score >= 82:
         name, perks = "王牌信息源", "S级优先展示、每日30直看、社区共建席位"
     elif score >= 62:
@@ -1048,7 +1059,7 @@ def provider_grade(xp: int, reputation: float, contribution: float, invite_count
         name, perks = "可信线索员", "B级直看、投稿交换池优先匹配"
     else:
         name, perks = "新晋观察员", "C级开放、通过高质量投稿快速升级"
-    return {"name": name, "score": round(score, 1), "perks": perks}
+    return {"name": name, "score": round(score, 1), "perks": perks, "components": {k: round(v, 1) for k, v in parts.items()}}
 
 
 def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
@@ -1059,6 +1070,7 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
     total_xp = int(user["xp"] or 0) + int(participation["xp"] or 0)
     reputation = max(1.0, min(99.0, float(user["reputation"] or 0) + float(participation["reputation"] or 0)))
     grade = provider_grade(total_xp, reputation, contribution, invite_count, feedback_score)
+    components_map = grade.get("components") or provider_grade_components(total_xp, reputation, contribution, invite_count, feedback_score)
     thresholds = [
         (38, "可信线索员"),
         (62, "核心信息源"),
@@ -1066,15 +1078,15 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
     ]
     next_item = next(((target, name) for target, name in thresholds if grade["score"] < target), None)
     components = [
-        {"name": "XP", "value": round(total_xp / 14, 1), "hint": "投稿、邀请、回测和求证参与"},
-        {"name": "贡献度", "value": round(contribution / 2, 1), "hint": "30天半衰期，高分线索更有效"},
-        {"name": "信誉", "value": round(reputation / 3, 1), "hint": "回测收益、低回撤和有效求证"},
-        {"name": "邀请", "value": invite_count * 2, "hint": "每位有效新用户+2源分"},
-        {"name": "社区验证", "value": feedback_score, "hint": "有用/求证/存疑反馈"},
+        {"name": "XP", "value": round(float(components_map.get("xp") or 0), 1), "hint": "投稿、邀请、评论和反馈参与"},
+        {"name": "贡献度", "value": round(float(components_map.get("contribution") or 0), 1), "hint": "同日同标的只计最高分，按30天半衰期保留"},
+        {"name": "信誉", "value": round(float(components_map.get("reputation") or 0), 1), "hint": "只计算高于基础信誉的部分"},
+        {"name": "邀请", "value": round(float(components_map.get("invite") or 0), 1), "hint": "每位有效新用户+1.5源分，封顶10"},
+        {"name": "社区反馈", "value": round(float(components_map.get("feedback") or 0), 1), "hint": "有用/存疑反馈"},
     ]
     actions = [
         "提交一条含明确标的、催化、来源和日期的线索",
-        "在已解锁线索下补充求证或风险点",
+        "在已解锁线索下标记有用或补充风险点",
         "复制邀请链接给同圈层用户，获得XP和直看额度",
     ]
     priority_actions = [
@@ -1084,13 +1096,13 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
             "impact": "贡献度/XP",
             "detail": "标的、催化、来源、日期完整时，最容易拉动源分。",
             "view": "submit",
-            "weight": max(0.0, 24 - contribution / 2),
+            "weight": max(0.0, 28 - float(components_map.get("contribution") or 0)),
         },
         {
             "key": "discussion",
-            "title": "参与求证反馈",
-            "impact": "社区验证",
-            "detail": "有用、求证反馈会提高信息源可信度，存疑会形成约束。",
+            "title": "参与社区反馈",
+            "impact": "社区反馈",
+            "detail": "有用会提高信息源可信度，存疑会形成约束。",
             "view": "feed",
             "weight": max(0.0, 8 - feedback_score),
         },
@@ -1100,7 +1112,7 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
             "impact": "邀请/额度",
             "detail": "每位有效注册成员增加源分，并带来直看额度。",
             "view": "rank",
-            "weight": max(0.0, 6 - invite_count * 2),
+            "weight": max(0.0, 10 - float(components_map.get("invite") or 0)),
         },
         {
             "key": "track_record",
@@ -1108,7 +1120,7 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
             "impact": "信誉",
             "detail": "持续提供可复盘线索，回测表现会进入信誉分。",
             "view": "backtest",
-            "weight": max(0.0, 24 - reputation / 3),
+            "weight": max(0.0, 18 - float(components_map.get("reputation") or 0)),
         },
     ]
     priority_actions = sorted(priority_actions, key=lambda item: item["weight"], reverse=True)
@@ -1116,11 +1128,11 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
         item["rank"] = index
         item["weight"] = round(item["weight"], 1)
     roadmap_templates = [
-        ("xp", "XP积累", total_xp / 14, 18, "提交线索、邀请和参与求证都会增加 XP。", "submit"),
-        ("contribution", "高质量贡献", contribution / 2, 24, "优先提交 A/S 级可验证线索，贡献度按30天半衰期保留。", "submit"),
-        ("reputation", "信誉沉淀", reputation / 3, 24, "让线索经得起回测和社区复核，减少高风险话术。", "backtest"),
-        ("feedback", "社区验证", feedback_score, 8, "在详情页补充求证、反向风险或有效评论。", "feed"),
-        ("invite", "同圈层邀请", invite_count * 2, 6, "邀请有效成员注册，获得 XP、直看额度和源分加成。", "rank"),
+        ("xp", "XP积累", components_map.get("xp", 0), 18, "提交线索、邀请、评论和反馈都会增加 XP。", "submit"),
+        ("contribution", "高质量贡献", components_map.get("contribution", 0), 24, "优先提交不同标的、可验证线索；同日同标的只计最高分。", "submit"),
+        ("reputation", "信誉沉淀", components_map.get("reputation", 0), 16, "让线索经得起回测和社区复核，减少高风险话术。", "backtest"),
+        ("feedback", "社区反馈", components_map.get("feedback", 0), 12, "在详情页标记有用、存疑或补充有效评论。", "feed"),
+        ("invite", "同圈层邀请", components_map.get("invite", 0), 6, "邀请有效成员注册，获得 XP、直看额度和源分加成。", "rank"),
     ]
     roadmap = []
     for key, label, value, target_value, detail, view in roadmap_templates:
@@ -1204,7 +1216,7 @@ def source_credibility_passport(
         "summary": summary,
         "metrics": metrics,
         "next_action": next_action or {"key": "submit", "label": "继续沉淀样本", "view": "submit", "detail": "提交可验证线索，扩大信息源可信样本。"},
-        "follow_hint": "建议关注并持续观察其回测、社区反馈和风险记录。" if state in {"prime", "track"} else "建议先观察其样本数和社区验证变化。",
+        "follow_hint": "建议关注并持续观察其回测、社区反馈和风险记录。" if state in {"prime", "track"} else "建议先观察其样本数和社区反馈变化。",
     }
 
 
@@ -1241,8 +1253,8 @@ def growth_missions(user: sqlite3.Row) -> list[dict[str, Any]]:
         },
         {
             "key": "discuss",
-            "title": "参与一次求证讨论",
-            "reward": "让社区识别高质量验证者",
+            "title": "参与一次社区反馈",
+            "reward": "让社区识别高质量参与者",
             "completed": int(comments or 0) + int(reactions or 0) >= 1,
             "cta_view": "feed",
         },
@@ -1336,7 +1348,7 @@ def growth_ledger(user: sqlite3.Row) -> dict[str, Any]:
         entries.append(
             {
                 "kind": "participation",
-                "label": "求证参与",
+                "label": "反馈参与",
                 "title": row["target"],
                 "value": int(row["reward_xp"] or 0),
                 "unit": "XP",
@@ -1369,7 +1381,7 @@ def growth_ledger(user: sqlite3.Row) -> dict[str, Any]:
         },
         "sources": [
             {"key": "submission", "label": "投稿/回测", "value": base_xp, "detail": "由投稿评分和回测表现重算"},
-            {"key": "participation", "label": "求证讨论", "value": participation_xp, "detail": "由有用、求证、存疑和评论累计"},
+            {"key": "participation", "label": "社区反馈", "value": participation_xp, "detail": "由有用、存疑和评论累计"},
             {"key": "invite", "label": "邀请拉新", "value": referral_xp, "detail": f"{int(referral['n'] or 0)} 位新用户"},
         ],
         "entries": entries[:8],
@@ -1570,21 +1582,21 @@ def heuristic_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
         matched = find_codes(text, code_lookup())
         target = "、".join(name for _, name in matched[:8]) or "待确认标的"
     logic = value("logic")
-    if not logic:
-        compact = re.sub(r"\s+", "", text)
-        logic = compact[:80] or "待补充核心逻辑"
     institution = value("institution")
     if not institution:
         m = re.search(r"【([^】]{2,24})】", text)
         institution = m.group(1) if m else ""
     recommender = value("recommender")
     key_points = []
+    catalyst_words = ("订单", "合作", "中标", "产能", "AI", "国产替代", "业绩", "并购", "政策", "客户", "验证", "毛利", "涨价", "扩产", "出海", "替代", "需求", "份额", "交付", "放量")
     for sentence in re.split(r"[。！？\n]+", text):
         sentence = re.sub(r"^【[^】]+】", "", sentence).strip(" \t#[]【】")
-        if len(sentence) >= 12 and any(w in sentence for w in ("订单", "合作", "中标", "产能", "AI", "国产替代", "业绩", "并购", "政策", "客户", "验证")):
+        if len(sentence) >= 12 and any(w in sentence for w in catalyst_words):
             key_points.append(sentence[:90])
         if len(key_points) >= 4:
             break
+    if not logic:
+        logic = heuristic_logic_from_points(target, key_points, text)
     if not key_points and logic:
         key_points = [logic[:90]]
     return {
@@ -1595,6 +1607,26 @@ def heuristic_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
         "key_points": key_points,
         "summary_source": "heuristic",
     }
+
+
+def heuristic_logic_from_points(target: str, key_points: list[str], text: str) -> str:
+    cleaned_target = re.split(r"[、,，/]", target or "")[0].strip()
+    points = [re.sub(r"\s+", "", item).strip("，,；;。") for item in key_points if item]
+    if points:
+        drivers: list[str] = []
+        for point in points[:3]:
+            point = re.sub(r"^(公司|其|该公司)", "", point)
+            point = re.sub(r"风险是.*$", "", point)
+            if len(point) >= 8:
+                drivers.append(point[:34])
+        if drivers:
+            prefix = f"{cleaned_target}：" if cleaned_target and cleaned_target != "待确认标的" else ""
+            return (prefix + "；".join(drivers))[:120]
+    compact = re.sub(r"\s+", "", text)
+    compact = re.sub(r"^【[^】]+】", "", compact)
+    if cleaned_target:
+        compact = re.sub(rf"^{re.escape(cleaned_target)}[：:，,]?", "", compact)
+    return (f"{cleaned_target}：" if cleaned_target and cleaned_target != "待确认标的" else "") + (compact[:90] or "待补充核心逻辑")
 
 
 def parse_llm_json(text: str) -> dict[str, Any] | None:
@@ -1614,16 +1646,28 @@ def parse_llm_json(text: str) -> dict[str, Any] | None:
     return data
 
 
+@lru_cache(maxsize=1)
+def llm_provider_call():
+    if not LLM_PROVIDER_PATH.exists():
+        return None
+    provider_path = str(LLM_PROVIDER_PATH)
+    if provider_path not in sys.path:
+        sys.path.insert(0, provider_path)
+    try:
+        from call_llm import call_llm as provider_call
+    except Exception:
+        return None
+    return provider_call
+
+
 def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None:
     global LLM_DISABLED_UNTIL
     if time.time() < LLM_DISABLED_UNTIL:
         return None
-    api_key = os.getenv("AGUWHISPER_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    provider_call = llm_provider_call()
+    if provider_call is None:
         return None
-    base_url = os.getenv("AGUWHISPER_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-    model = os.getenv("AGUWHISPER_LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
-    timeout = int(os.getenv("AGUWHISPER_LLM_TIMEOUT", "3"))
+    timeout = float(os.getenv("AGUWHISPER_LLM_TIMEOUT", "20"))
     raw = payload.get("raw_content", "") if isinstance(payload, dict) else payload.raw_content
     prompt = (
         "你是A股私域投研信息整理助手。请从原始消息中抽取结构化关键信息，"
@@ -1634,64 +1678,10 @@ def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None
         "logic_reason为不超过40字的评分理由。原始消息：\n"
         f"{raw[:6000]}"
     )
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "只输出严格JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-        },
-        ensure_ascii=False,
-    ).encode()
-    req = urlrequest.Request(
-        base_url.rstrip("/") + "/chat/completions",
-        data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    content = ""
     try:
-        with urlrequest.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        choices = data.get("choices") or []
-        if choices:
-            content = choices[0].get("message", {}).get("content", "")
-    except HTTPError as exc:
-        if exc.code not in (404, 405):
-            LLM_DISABLED_UNTIL = time.time() + 300
-            return None
-        responses_body = json.dumps(
-            {
-                "model": model,
-                "input": [
-                    {"role": "system", "content": "只输出严格JSON。"},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.2,
-            },
-            ensure_ascii=False,
-        ).encode()
-        responses_req = urlrequest.Request(
-            base_url.rstrip("/") + "/responses",
-            data=responses_body,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urlrequest.urlopen(responses_req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except (OSError, URLError, json.JSONDecodeError):
-            LLM_DISABLED_UNTIL = time.time() + 300
-            return None
-        content = data.get("output_text", "")
-        if not content:
-            for output in data.get("output", []):
-                for item in output.get("content", []):
-                    if item.get("type") in ("output_text", "text") and item.get("text"):
-                        content += item["text"]
-    except (OSError, URLError, json.JSONDecodeError):
+        result = provider_call(prompt, timeout=timeout, max_tokens=900)
+        content = str(result.text or "").strip()
+    except Exception:
         LLM_DISABLED_UNTIL = time.time() + 300
         return None
     parsed = parse_llm_json(content)
@@ -1716,6 +1706,9 @@ def llm_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any] | None
         "logic_score": logic_score,
         "logic_reason": str(parsed.get("logic_reason") or "")[:80],
         "summary_source": "llm",
+        "llm_provider": getattr(getattr(result, "choice", None), "provider_id", ""),
+        "llm_model": getattr(getattr(result, "choice", None), "model", ""),
+        "llm_latency_ms": getattr(result, "latency_ms", None),
     }
 
 
@@ -1724,6 +1717,7 @@ def summarize_payload(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
     ai = llm_summary(payload)
     if not ai:
         base["stock_codes"] = stock_items_from_target(base["target"])
+        base["summary_warning"] = "LLM未返回结果，已使用规则提炼。"
         return base
     merged = {**base, **{k: v for k, v in ai.items() if v}}
     if not merged.get("key_points"):
@@ -2040,7 +2034,7 @@ def award_participation(user_id: int, rumor_id: int, event_key: str, reward_xp: 
         "reputation_delta": rep_delta,
         "participation_xp": int(after["xp"] or 0),
         "level": level_for(total_xp),
-        "message": f"求证贡献 +{xp_delta} XP" if xp_delta > 0 else "该求证贡献已记录",
+        "message": f"反馈贡献 +{xp_delta} XP" if xp_delta > 0 else "该反馈贡献已记录",
     }
 
 
@@ -2058,17 +2052,21 @@ def parse_dt(value: str | None) -> datetime:
 def contribution_for_user(user_id: int) -> float:
     rows = query(
         """
-        select ai_score, created_at from rumors
+        select target, ai_score, created_at from rumors
         where submitter_id = ?
         """,
         (user_id,),
     )
     now = datetime.now(timezone.utc)
-    total = 0.0
+    grouped: dict[tuple[str, str], float] = {}
     for row in rows:
+        day = str(row["created_at"] or "")[:10]
+        target = str(row["target"] or "").strip()
         age_days = max(0.0, (now - parse_dt(row["created_at"])).total_seconds() / 86400)
         decay = 0.5 ** (age_days / CONTRIBUTION_HALF_LIFE_DAYS)
-        total += float(row["ai_score"]) * decay
+        key = (day, target)
+        grouped[key] = max(grouped.get(key, 0.0), float(row["ai_score"]) * decay)
+    total = sum(grouped.values())
     return round(total, 1)
 
 
@@ -2117,7 +2115,7 @@ def provider_feedback_score(user_id: int) -> float:
             outcome_bonus += 1.0
         elif outcome["state"] == "weak":
             outcome_bonus -= 1.5
-    raw = counts.get("useful", 0) * 1.5 + counts.get("verify", 0) * 0.8 - counts.get("doubt", 0) * 1.2 - report_penalty + outcome_bonus
+    raw = counts.get("useful", 0) * 1.5 - counts.get("doubt", 0) * 1.2 - report_penalty + outcome_bonus
     return round(max(-10.0, min(12.0, raw)), 1)
 
 
@@ -2132,7 +2130,7 @@ def provider_proof_scorecard(
     hit_rate = float(track_record.get("hit_rate") or 0)
     avg_signal = track_record.get("avg_signal")
     samples = int(track_record.get("samples") or 0)
-    positive_feedback = int(feedback.get("useful", 0)) + int(feedback.get("verify", 0))
+    positive_feedback = int(feedback.get("useful", 0))
     doubt = int(feedback.get("doubt", 0))
     high_tier_count = sum(int((tier_mix.get(tier) or {}).get("count") or 0) for tier in ("S", "A"))
     return [
@@ -2152,10 +2150,10 @@ def provider_proof_scorecard(
         },
         {
             "key": "community_feedback",
-            "label": "社区验证",
+            "label": "社区反馈",
             "state": "strong" if positive_feedback >= 3 and doubt == 0 else "watch" if positive_feedback else "unknown",
             "value": positive_feedback - doubt,
-            "detail": f"有用/求证 {positive_feedback} 次，存疑 {doubt} 次",
+            "detail": f"有用 {positive_feedback} 次，存疑 {doubt} 次",
         },
         {
             "key": "risk_control",
@@ -2287,7 +2285,6 @@ def provider_profile(provider_id: int, viewer: sqlite3.Row) -> dict[str, Any]:
         "tier_mix": tier_mix,
         "feedback": {
             "useful": feedback.get("useful", 0),
-            "verify": feedback.get("verify", 0),
             "doubt": feedback.get("doubt", 0),
         },
         "track_record": track_record,
@@ -2383,10 +2380,9 @@ def rumor_value_verdict(
 ) -> dict[str, Any]:
     source_score = float((provider or {}).get("grade", {}).get("score", 45.0))
     useful = int(discussion.get("useful") or 0)
-    verify = int(discussion.get("verify") or 0)
     doubt = int(discussion.get("doubt") or 0)
     comments = int(discussion.get("comments") or 0)
-    community_bonus = max(-8.0, min(14.0, useful * 1.8 + verify * 1.0 + comments * 0.45 - doubt * 1.4))
+    community_bonus = max(-8.0, min(14.0, useful * 1.8 + comments * 0.45 - doubt * 1.4))
     outcome_state = (outcome or {}).get("state", "pending")
     outcome_bonus = {
         "hit": 10.0,
@@ -2413,7 +2409,7 @@ def rumor_value_verdict(
         state, label = "uncertain", "低确定性"
     evidence_points = 1
     evidence_points += 1 if provider else 0
-    evidence_points += 1 if useful + verify + comments > 0 else 0
+    evidence_points += 1 if useful + comments > 0 else 0
     evidence_points += 1 if outcome_state not in {"pending", "no_code", "skipped"} else 0
     evidence_points += 1 if not moderation.get("reports") else 0
     confidence = round(min(100.0, evidence_points / 5 * 100), 1)
@@ -2424,8 +2420,8 @@ def rumor_value_verdict(
         drivers.append("内容评分进入A级")
     if provider:
         drivers.append(f"{provider['display_name']} · {provider['grade']['name']}")
-    if useful or verify:
-        drivers.append(f"社区正反馈 {useful + verify} 次")
+    if useful:
+        drivers.append(f"社区有用反馈 {useful} 次")
     if outcome_state in {"hit", "valid", "weak"}:
         drivers.append(f"回测{(outcome or {}).get('label', '')}")
     if moderation.get("reports"):
@@ -2452,7 +2448,6 @@ def rumor_verification_ledger(
     risk: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     useful = int(discussion.get("useful") or 0)
-    verify = int(discussion.get("verify") or 0)
     doubt = int(discussion.get("doubt") or 0)
     comments = int(discussion.get("comments") or 0)
     outcome = outcome or backtest_outcome(None)
@@ -2474,10 +2469,10 @@ def rumor_verification_ledger(
         },
         {
             "key": "community",
-            "label": "社区验证",
-            "state": "strong" if useful + verify >= 2 else "weak" if doubt > useful + verify else "watch",
-            "value": useful + verify - doubt,
-            "detail": f"有用{useful} · 求证{verify} · 存疑{doubt} · 讨论{comments}",
+            "label": "社区反馈",
+            "state": "strong" if useful >= 2 else "weak" if doubt > useful else "watch",
+            "value": useful - doubt,
+            "detail": f"有用{useful} · 存疑{doubt} · 讨论{comments}",
         },
         {
             "key": "backtest",
@@ -2527,7 +2522,7 @@ def rumor_decision_brief(
         positives.append(f"内容评分 {tier}{score}，证据完整度 {verdict.get('confidence', 0)}%")
     watch_points = [task["label"] for task in tasks if task.get("status") != "locked"][:3]
     if not watch_points:
-        watch_points = ["补充来源链路", "等待社区求证", "观察行情复盘"]
+        watch_points = ["补充来源链路", "等待社区反馈", "观察行情复盘"]
     risks = []
     if risk.get("level") != "clear":
         risks.append(risk.get("label") or "话术风险")
@@ -2538,7 +2533,7 @@ def rumor_decision_brief(
     if not risks:
         risks.append("仍需自行核验来源、价格和兑现节奏")
     if verdict.get("state") in {"prime", "track"}:
-        action = "进入详情求证关键节点，并加入自选持续跟踪"
+        action = "进入详情核验关键节点，并加入自选持续跟踪"
     elif risk.get("level") == "high" or moderation.get("reports"):
         action = "先处理风险和来源核验，再决定是否跟踪"
     else:
@@ -2552,7 +2547,7 @@ def rumor_decision_brief(
         "watch_points": watch_points,
         "risks": risks[:3],
         "next_action": action,
-        "disclaimer": "仅用于社区信息复盘和求证，不构成投资建议。",
+        "disclaimer": "仅用于社区信息复盘和反馈，不构成投资建议。",
     }
 
 
@@ -2590,14 +2585,13 @@ def rumor_score_explanation(
         if score < 55
     ][:3]
     useful = int(discussion.get("useful") or 0)
-    verify = int(discussion.get("verify") or 0)
     doubt = int(discussion.get("doubt") or 0)
     outcome = outcome or backtest_outcome(None)
     source_score = float((provider or {}).get("grade", {}).get("score") or 0)
     factors = [
         {"key": "content", "label": "原始内容", "value": ai_score, "state": "strong" if ai_score >= 72 else "watch" if ai_score >= 55 else "weak"},
         {"key": "source", "label": "信息源", "value": round(source_score, 1) if provider else None, "state": "strong" if source_score >= 62 else "watch" if provider else "unknown"},
-        {"key": "community", "label": "社区反馈", "value": useful + verify - doubt, "state": "strong" if useful + verify >= 2 else "weak" if doubt > useful + verify else "watch"},
+        {"key": "community", "label": "社区反馈", "value": useful - doubt, "state": "strong" if useful >= 2 else "weak" if doubt > useful else "watch"},
         {"key": "backtest", "label": "回测", "value": outcome.get("score"), "state": "strong" if outcome.get("state") in {"hit", "valid"} else "weak" if outcome.get("state") == "weak" else "watch"},
         {"key": "risk", "label": "风控", "value": max(0, 100 - int(risk.get("score_penalty") or 0) * 10), "state": "weak" if risk.get("level") == "high" else "watch" if risk.get("level") == "watch" else "strong"},
     ]
@@ -2609,7 +2603,7 @@ def rumor_score_explanation(
     if outcome.get("state") in {"pending", "no_code", "skipped"}:
         next_steps.append("等待行情复盘")
     if not next_steps:
-        next_steps = ["进入详情认领求证任务", "加入自选跟踪兑现节奏"]
+        next_steps = ["进入详情补充反馈", "加入自选跟踪兑现节奏"]
     return {
         "headline": f"{verdict.get('label', '可观察')} · 价值指数 {verdict.get('index', 0)}",
         "summary": f"内容分 {ai_score}，证据完整度 {verdict.get('confidence', 0)}%，有效排序分已叠加来源、社区、回测和风控。",
@@ -2677,7 +2671,7 @@ def rumor_consensus_snapshot(row: sqlite3.Row, risk: dict[str, Any], outcome: di
         next_action = "先比较同标的线索来源，重点复核风险话术和反向证据。"
     elif related >= 1:
         state, label = "forming", "共识形成中"
-        next_action = "进入情报房间补充求证，观察是否出现更多独立来源。"
+        next_action = "进入情报房间补充反馈，观察是否出现更多独立来源。"
     else:
         state, label = "isolated", "孤立线索"
         next_action = "等待更多社区线索，或补充更强来源和验证节点。"
@@ -2754,7 +2748,6 @@ def public_rumor(
     discussion = discussion or {
         "comments": 0,
         "useful": 0,
-        "verify": 0,
         "doubt": 0,
         "heat": 0,
         "my_reactions": [],
@@ -2782,7 +2775,7 @@ def public_rumor(
         else [
             {
                 "key": "unlock_to_verify",
-                "label": "解锁后参与求证",
+                "label": "解锁后参与反馈",
                 "priority": "medium",
                 "status": "locked",
                 "detail": "解锁完整内容后可查看订单、来源、风控和行情复盘任务。",
@@ -3036,7 +3029,7 @@ def followed_provider_summary(user_id: int) -> dict[str, Any]:
             "key": "source_upgrade",
             "label": "提升我的源分",
             "view": "rank",
-            "detail": "投稿、求证、邀请和社区正反馈都会进入信息源等级。",
+            "detail": "投稿、反馈、邀请和社区正反馈都会进入信息源等级。",
         },
     }
     return {
@@ -3134,7 +3127,7 @@ def personalized_activity_feed(user: sqlite3.Row, limit: int = 12) -> dict[str, 
         add_rumor_signal(
             "discussion",
             row,
-            f"{row['actor']} 补充了求证",
+            f"{row['actor']} 补充了反馈",
             str(row["comment_content"] or "")[:80],
             75,
             {"label": "看讨论", "view": "detail", "rumor_id": row["id"]},
@@ -3299,7 +3292,7 @@ def watch_summary(user_id: int) -> dict[str, Any]:
         action = {"key": "review_risk", "label": "查看风险线索", "query": risk_items[0]["code"] or risk_items[0]["name"], "detail": "优先查看被举报或风险升高的自选线索。"}
     elif hot_items:
         headline = f"{hot_items[0]['name']} 命中高价值线索"
-        action = {"key": "open_hot", "label": "查看高价值命中", "query": hot_items[0]["code"] or hot_items[0]["name"], "detail": f"最高 {hot_items[0]['top_score']} 分，适合进入详情求证。"}
+        action = {"key": "open_hot", "label": "查看高价值命中", "query": hot_items[0]["code"] or hot_items[0]["name"], "detail": f"最高 {hot_items[0]['top_score']} 分，适合进入详情核验。"}
     elif active_items:
         headline = f"{active_items[0]['name']} 有新线索流入"
         action = {"key": "open_active", "label": "查看自选动态", "query": active_items[0]["code"] or active_items[0]["name"], "detail": "按自选过滤情报流，集中处理最新变化。"}
@@ -3326,6 +3319,54 @@ def watch_summary(user_id: int) -> dict[str, Any]:
         "rumor_hits": total_hits,
         "digest": digest,
         "view_privilege": privilege,
+    }
+
+
+def watchlist_history(user: sqlite3.Row) -> dict[str, Any]:
+    if bool(user["is_guest"]):
+        raise HTTPException(401, "请先登录后使用自选股")
+    watches = watchlist_for_user(user["id"])
+    unlocked = user_unlocked_ids(user)
+    watched_codes = watched_codes_for_user(user["id"])
+    items: list[dict[str, Any]] = []
+    total_signals = 0
+    for watch in watches:
+        code = str(watch["code"] or "")
+        name = str(watch["name"] or code)
+        rows = query(
+            """
+            select *
+            from rumors
+            where stock_codes like ? or target like ?
+            order by recommendation_date desc, created_at desc, id desc
+            limit 300
+            """,
+            (f"%{code}%", f"%{name}%"),
+        )
+        stats = discussion_stats([row["id"] for row in rows], user["id"])
+        signals = [
+            public_rumor(row, can_view(user, row, unlocked), stats.get(row["id"]), watched_codes, user["id"], user, slim=True)
+            for row in rows
+        ]
+        total_signals += len(signals)
+        latest = signals[0] if signals else None
+        items.append(
+            {
+                "code": code,
+                "name": name,
+                "created_at": watch["created_at"],
+                "signal_count": len(signals),
+                "latest_date": latest.get("recommendation_date") if latest else None,
+                "top_score": max((int(signal.get("ai_score") or 0) for signal in signals), default=0),
+                "signals": signals,
+            }
+        )
+    items.sort(key=lambda item: (item.get("latest_date") or "", item.get("created_at") or ""), reverse=True)
+    return {
+        "items": items,
+        "total": len(items),
+        "signal_total": total_signals,
+        "rights_envelope": rights_envelope("watchlist-history", user["id"], f"{len(items)}:{total_signals}"),
     }
 
 
@@ -3451,14 +3492,14 @@ def daily_workflow(day: str, user: sqlite3.Row) -> dict[str, Any]:
         },
         {
             "key": "verify",
-            "label": "再求证",
+            "label": "再反馈",
             "title": "查来源、证据和风险",
             "detail": "进入详情看评分解释、共识、悬赏和风控，优先补可验证事实。",
             "metric": "评分+共识+悬赏",
             "view": "feed",
             "query": focus_query,
             "tier": "",
-            "action": "去求证",
+            "action": "去反馈",
         },
         {
             "key": "track",
@@ -3473,7 +3514,7 @@ def daily_workflow(day: str, user: sqlite3.Row) -> dict[str, Any]:
         },
     ]
     return {
-        "headline": "三步处理今天的情报：筛选、求证、跟踪",
+        "headline": "三步处理今天的情报：筛选、反馈、跟踪",
         "summary": "把小道消息拆成可复盘工作流，避免只看标题或分数做判断。",
         "steps": steps,
         "rights_fingerprint": hashlib.sha256(f"workflow:{day}:{user['id']}:{hidden_copyright_mark()}".encode()).hexdigest()[:16],
@@ -3593,7 +3634,6 @@ def detail_rumor(row: sqlite3.Row, stats: dict[str, Any] | None, watched_codes: 
         or {
             "comments": 0,
             "useful": 0,
-            "verify": 0,
             "doubt": 0,
             "heat": 0,
             "my_reactions": [],
@@ -3679,7 +3719,7 @@ def today_signal_board(day: str, user: sqlite3.Row) -> dict[str, Any]:
     locked_high = [item for item in high_value if item.get("hidden")]
     return {
         "headline": "当日普通信号与高价值解锁",
-        "summary": "先用普通信号了解当日方向，再解锁 S/A 高价值线索做重点求证。",
+        "summary": "先用普通信号了解当日方向，再解锁 S/A 高价值线索做重点核验。",
         "ordinary": ordinary,
         "high_value": high_value,
         "unlock_prompt": {
@@ -3703,7 +3743,7 @@ def best_pick_verification_plan(
     top_tasks = tasks[:3]
     if adjusted_score >= 82 and risk.get("level") == "clear":
         stage = "priority"
-        headline = "优先求证：高分且风控干净"
+        headline = "优先核验：高分且风控干净"
     elif risk.get("level") != "clear" or reports.get("trust_state") in {"watch", "review"}:
         stage = "risk_first"
         headline = "先排雷：确认风险和举报点"
@@ -3720,7 +3760,7 @@ def best_pick_verification_plan(
         if task.get("status") != "pending" and task.get("key") not in {"market_followup"}
     ][:2]
     if not evidence_gap:
-        evidence_gap = ["等待社区交叉验证", "补充反向风险"]
+        evidence_gap = ["等待社区反馈", "补充反向风险"]
 
     steps = [
         {
@@ -3728,7 +3768,7 @@ def best_pick_verification_plan(
             "label": task["label"],
             "priority": task.get("priority", "medium"),
             "detail": task.get("detail", ""),
-            "action": task.get("action", "求证"),
+            "action": task.get("action", "讨论"),
         }
         for task in top_tasks
     ]
@@ -3740,7 +3780,7 @@ def best_pick_verification_plan(
         "steps": steps,
         "cta": {
             "key": "verify_best",
-            "label": "进入求证",
+            "label": "进入反馈",
             "view": "feed",
             "query": row["target"],
             "tier": row["ai_tier"],
@@ -3836,7 +3876,7 @@ def opportunity_summary(day: str, user: sqlite3.Row) -> dict[str, Any]:
             "label": "追踪热点房间",
             "view": "feed",
             "query": (top_theme or top_stock or {}).get("name", ""),
-            "detail": "当前高价值线索可见度较好，建议进入热点房间继续求证。",
+            "detail": "当前高价值线索可见度较好，建议进入热点房间继续核验。",
         }
     cards = [
         {
@@ -3953,7 +3993,7 @@ def frontpage_action_queue(day: str, user: sqlite3.Row) -> list[dict[str, Any]]:
                 "priority": 1,
                 "label": "复盘已开放高分线索",
                 "target": f"{top['target']} · {top['ai_tier']}{top['ai_score']}",
-                "detail": "高分内容已可见，进入详情查看决策简报、求证任务和回测账本。",
+                "detail": "高分内容已可见，进入详情查看决策简报、反馈任务和回测账本。",
                 "state": "ready",
                 "view": "feed",
                 "tier": top["ai_tier"],
@@ -4084,7 +4124,7 @@ def frontpage_bounty_board(day: str, user: sqlite3.Row, limit: int = 4) -> dict[
                 "target": row["target"],
                 "tier": row["ai_tier"],
                 "score": int(row["ai_score"] or 0),
-                "task": top_bounty.get("label") or "社区求证",
+                "task": top_bounty.get("label") or "社区反馈",
                 "action": top_bounty.get("cta") or top_bounty.get("action") or "参与",
                 "reward_xp": reward,
                 "reputation_delta": top_bounty.get("reputation_delta") or 0,
@@ -4095,7 +4135,7 @@ def frontpage_bounty_board(day: str, user: sqlite3.Row, limit: int = 4) -> dict[
         if len(items) >= limit:
             break
     return {
-        "headline": "优先领取高价值线索的求证任务" if active_count else "解锁高价值线索后领取求证悬赏",
+        "headline": "优先参与高价值线索的社区反馈" if active_count else "解锁高价值线索后参与社区反馈",
         "summary": {
             "active": active_count,
             "locked": locked_count,
@@ -4193,7 +4233,6 @@ def discussion_stats(rumor_ids: list[int], user_id: int | None = None) -> dict[i
         rumor_id: {
             "comments": 0,
             "useful": 0,
-            "verify": 0,
             "doubt": 0,
             "my_reactions": [],
             "moderation": reports.get(rumor_id, {}),
@@ -4214,17 +4253,21 @@ def discussion_stats(rumor_ids: list[int], user_id: int | None = None) -> dict[i
         """,
         tuple(rumor_ids),
     ):
-        if row["reaction"] in ("useful", "verify", "doubt"):
+        if row["reaction"] == "verify":
+            stats[row["rumor_id"]]["useful"] += int(row["n"])
+        elif row["reaction"] in ("useful", "doubt"):
             stats[row["rumor_id"]][row["reaction"]] = int(row["n"])
     if user_id is not None:
         for row in query(
             f"select rumor_id, reaction from rumor_reactions where user_id = ? and rumor_id in ({placeholders})",
             (user_id, *rumor_ids),
         ):
-            stats[row["rumor_id"]]["my_reactions"].append(row["reaction"])
+            reaction = "useful" if row["reaction"] == "verify" else row["reaction"]
+            if reaction in ("useful", "doubt") and reaction not in stats[row["rumor_id"]]["my_reactions"]:
+                stats[row["rumor_id"]]["my_reactions"].append(reaction)
     for item in stats.values():
         moderation = item.get("moderation") or {}
-        item["heat"] = max(0, int(item["comments"] * 3 + item["useful"] * 2 + item["verify"] + item["doubt"] - moderation.get("penalty", 0)))
+        item["heat"] = max(0, int(item["comments"] * 3 + item["useful"] * 2 + item["doubt"] - moderation.get("penalty", 0)))
     return stats
 
 
@@ -4526,7 +4569,7 @@ def activation_center(user: sqlite3.Row) -> dict[str, Any]:
         "value": [
             f"{int(high_value or 0)} 条 S/A 高价值线索可通过等级、直看或交换解锁",
             f"{int(provider_count or 0)} 位信息源正在沉淀评分、回测和社区反馈",
-            "注册、关注、投稿、求证和邀请都会进入成长账本",
+            "注册、关注、投稿、反馈和邀请都会进入成长账本",
         ],
     }
     return {
@@ -5240,7 +5283,7 @@ def _calc_signal_values() -> None:
 def recalc_user_scores() -> None:
     rows = query(
         """
-        select r.submitter_id, r.ai_score, r.created_at,
+        select r.submitter_id, r.target, r.ai_score, r.created_at,
                b.ret_t1_1, b.ret_t1_5, b.ret_t1_20, b.signal_value
         from rumors r left join backtests b on b.rumor_id = r.id
         where r.submitter_id is not null
@@ -5254,7 +5297,13 @@ def recalc_user_scores() -> None:
         xp = 0
         perf = []
         contribution = 0.0
+        deduped: dict[tuple[str, str], sqlite3.Row] = {}
         for item in items:
+            key = (str(item["created_at"] or "")[:10], str(item["target"] or "").strip())
+            current = deduped.get(key)
+            if current is None or float(item["ai_score"] or 0) > float(current["ai_score"] or 0):
+                deduped[key] = item
+        for item in deduped.values():
             # signal_value (0-100 百分位) 有则用，无则退回 ai_score
             sv = item["signal_value"]
             base_score = float(sv) if sv is not None else float(item["ai_score"])
@@ -5418,7 +5467,7 @@ def value_framework(response: Response, agu_session: str | None = Cookie(default
         "value_verdict": {
             "name": "社区价值指数",
             "description": "在原始AI评分之上叠加信息源等级、社区正反馈、回测表现、自选命中和举报扣分，用于排序注意力而非替代原评分。",
-            "inputs": ["AI内容评分", "信息源分", "有用/求证/讨论", "回测状态", "自选命中", "可信度扣分"],
+            "inputs": ["AI内容评分", "信息源分", "有用/存疑/讨论", "回测状态", "自选命中", "可信度扣分"],
             "labels": ["强价值", "值得跟踪", "可观察", "低确定性"],
         },
         "calibration": {
@@ -5434,7 +5483,7 @@ def value_framework(response: Response, agu_session: str | None = Cookie(default
                 {"key": "risk", "label": "高风险话术", "impact": "扣分", "detail": "稳赚、内幕、喊单、满仓等措辞会进入风控提示。"},
                 {"key": "reports", "label": "社区举报", "impact": "降权", "detail": "举报会进入可信度账本，影响有效分、排序和信息源反馈。"},
             ],
-            "principles": ["排序注意力，不替代独立判断", "优先可验证事实，不奖励喊单结论", "所有高分线索仍需回测和社区求证"],
+            "principles": ["排序注意力，不替代独立判断", "优先可验证事实，不奖励喊单结论", "所有高分线索仍需回测和社区反馈"],
         },
     }
 
@@ -5514,7 +5563,15 @@ def get_source_upgrade_center(response: Response, agu_session: str | None = Cook
 @app.get("/api/watchlist")
 def get_watchlist(response: Response, agu_session: str | None = Cookie(default=None)) -> dict[str, Any]:
     user = current_user(response, agu_session)
+    if bool(user["is_guest"]):
+        raise HTTPException(401, "请先登录后使用自选股")
     return watch_summary(user["id"])
+
+
+@app.get("/api/watchlist/history")
+def get_watchlist_history(response: Response, agu_session: str | None = Cookie(default=None)) -> dict[str, Any]:
+    user = current_user(response, agu_session)
+    return watchlist_history(user)
 
 
 @app.post("/api/watchlist")
@@ -5751,6 +5808,8 @@ def list_rumors(
     if section == "today":
         where.append("stock_codes not in ('', '[]') and stock_codes is not null")
     if watch:
+        if bool(user["is_guest"]):
+            raise HTTPException(401, "请先登录后使用自选股")
         watch_items = watchlist_for_user(user["id"])
         if not watch_items:
             return {"items": [], "offset": offset, "limit": limit, "has_more": False, "rights_envelope": rights_envelope("rumor-feed", user["id"], f"empty-watch:{offset}:{limit}")}
@@ -5956,8 +6015,8 @@ def react_to_rumor(rumor_id: int, payload: ReactionPayload, response: Response, 
             user["id"],
             rumor_id,
             f"reaction:{payload.reaction}",
-            {"useful": 2, "verify": 3, "doubt": 3}.get(payload.reaction, 1),
-            {"useful": 0.1, "verify": 0.2, "doubt": 0.1}.get(payload.reaction, 0.0),
+            {"useful": 2, "doubt": 3}.get(payload.reaction, 1),
+            {"useful": 0.1, "doubt": 0.1}.get(payload.reaction, 0.0),
         )
         if active
         else {"awarded": False, "xp_delta": 0, "reputation_delta": 0.0, "message": "已取消反馈"}
