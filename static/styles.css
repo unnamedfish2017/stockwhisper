@@ -172,7 +172,9 @@ h1, h2, h3, p { margin: 0; }
   gap: 16px;
   margin-bottom: 20px;
 }
-.search { display: flex; gap: 8px; min-width: 0; flex: 1; }
+.search { display: flex; gap: 8px; min-width: 0; flex: 1; align-items: center; }
+.search input { min-width: 180px; flex: 1; }
+.search button { flex-shrink: 0; }
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -191,6 +193,13 @@ input:focus, select:focus, textarea:focus {
 select { max-width: 140px; }
 textarea { min-height: 180px; resize: vertical; }
 .auth { display: flex; gap: 8px; }
+.section-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 .invite-landing {
   display: none;

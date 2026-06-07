@@ -1119,7 +1119,7 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
             "title": "沉淀回测记录",
             "impact": "信誉",
             "detail": "持续提供可复盘线索，回测表现会进入信誉分。",
-            "view": "backtest",
+            "view": "rank",
             "weight": max(0.0, 18 - float(components_map.get("reputation") or 0)),
         },
     ]
@@ -1130,7 +1130,7 @@ def provider_upgrade_plan(user: sqlite3.Row) -> dict[str, Any]:
     roadmap_templates = [
         ("xp", "XP积累", components_map.get("xp", 0), 18, "提交线索、邀请、评论和反馈都会增加 XP。", "submit"),
         ("contribution", "高质量贡献", components_map.get("contribution", 0), 24, "优先提交不同标的、可验证线索；同日同标的只计最高分。", "submit"),
-        ("reputation", "信誉沉淀", components_map.get("reputation", 0), 16, "让线索经得起回测和社区复核，减少高风险话术。", "backtest"),
+        ("reputation", "信誉沉淀", components_map.get("reputation", 0), 16, "让线索经得起回测和社区复核，减少高风险话术。", "rank"),
         ("feedback", "社区反馈", components_map.get("feedback", 0), 12, "在详情页标记有用、存疑或补充有效评论。", "feed"),
         ("invite", "同圈层邀请", components_map.get("invite", 0), 6, "邀请有效成员注册，获得 XP、直看额度和源分加成。", "rank"),
     ]

@@ -32,6 +32,8 @@
         <header class="topbar">
           <div class="search">
             <input id="searchInput" placeholder="搜索标的、机构、逻辑" />
+            <button id="searchBtn" type="button">搜索</button>
+            <button id="clearSearchBtn" type="button" class="ghost">清空</button>
             <select id="tierFilter">
               <option value="">全部价值</option>
               <option value="S">S级</option>
@@ -77,6 +79,7 @@
               <h2>分享消息</h2>
               <p>粘贴原始消息后，AI 会先提炼标的、逻辑和关键事实，再给出价值评分。</p>
             </div>
+            <button type="button" class="ghost back-feed-btn">返回情报流</button>
           </div>
           <form id="submitForm" class="form-panel">
             <div class="form-row">
@@ -127,7 +130,10 @@
               <h2>自选股</h2>
               <p>登录后添加自选股，并按时间倒序查看相关历史情报。</p>
             </div>
-            <button id="refreshWatch">刷新</button>
+            <div class="section-actions">
+              <button type="button" class="ghost back-feed-btn">返回情报流</button>
+              <button id="refreshWatch" type="button">刷新</button>
+            </div>
           </div>
           <section id="watchPage" class="watch-page"></section>
         </section>
@@ -138,6 +144,7 @@
               <h2>用户评分</h2>
               <p>信息源由贡献度、信誉分、回测表现、独特性和邀请贡献共同排序。</p>
             </div>
+            <button type="button" class="ghost back-feed-btn">返回情报流</button>
           </div>
           <section id="sourceUpgradePanel" class="source-upgrade-panel"></section>
           <div id="leaderboard" class="rank-list"></div>

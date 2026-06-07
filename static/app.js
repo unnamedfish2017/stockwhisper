@@ -76,6 +76,13 @@ function renderAuthButtons() {
   $("#logoutBtn").style.display = loggedIn ? "" : "none";
 }
 
+const VIEW_FALLBACKS = {
+  backtest: "rank",
+  register: "feed",
+  auth: "feed",
+  detail: "feed",
+};
+
 function isLoggedIn() {
   return !!state.user && !state.user.is_guest;
 }
@@ -145,15 +152,39 @@ function renderProfile() {
 }
 
 function switchView(view) {
-  state.view = view;
-  $$(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  const normalized = VIEW_FALLBACKS[view] || view || "feed";
+  const target = $(`#${normalized}View`);
+  if (!target) {
+    console.warn(`Unknown view: ${view}`);
+    return switchView("feed");
+  }
+  state.view = normalized;
   $$(".view").forEach((v) => v.classList.remove("active"));
-  $(`#${view}View`).classList.add("active");
-  if (view === "watch") loadWatchPage();
-  if (view === "rank") {
+  $$(".nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === normalized));
+  target.classList.add("active");
+  if (normalized === "watch") loadWatchPage();
+  if (normalized === "rank") {
     loadSourceUpgradeCenter();
     loadLeaderboard();
   }
+}
+
+function runSearch() {
+  state.watchOnly = false;
+  state.followedOnly = false;
+  state.selectedTier = $("#tierFilter").value;
+  switchView("feed");
+  return loadRumors(true);
+}
+
+function clearSearch() {
+  $("#searchInput").value = "";
+  $("#tierFilter").value = "";
+  state.selectedTier = "";
+  state.watchOnly = false;
+  state.followedOnly = false;
+  switchView("feed");
+  return loadRumors(true);
 }
 
 async function loadMe() {
@@ -176,19 +207,21 @@ async function loadRumors(reset = true) {
   const sentinel = $("#feedSentinel");
   if (sentinel) sentinel.textContent = "加载中…";
   try {
-    const q = encodeURIComponent($("#searchInput").value.trim());
+    const rawQ = $("#searchInput").value.trim();
+    const searching = !!rawQ;
+    const q = encodeURIComponent(rawQ);
     const tier = encodeURIComponent(state.selectedTier || $("#tierFilter").value);
-    const date = encodeURIComponent(state.feedDate || "");
+    const date = encodeURIComponent(searching ? "" : state.feedDate || "");
     const watch = state.watchOnly ? 1 : 0;
     const followed = state.followedOnly ? 1 : 0;
-    const section = "today";
+    const section = searching ? "" : "today";
     const data = await api(`/api/rumors?q=${q}&tier=${tier}&date=${date}&watch=${watch}&followed=${followed}&section=${section}&offset=${state.feedOffset}&limit=24`);
     state.rightsEnvelope = data.rights_envelope || state.rightsEnvelope;
     grid.insertAdjacentHTML("beforeend", data.items.map(renderCard).join(""));
     state.feedOffset += data.items.length;
     state.feedHasMore = data.has_more;
     if (sentinel) {
-      if (grid.children.length === 0) sentinel.textContent = "暂无情报";
+      if (grid.children.length === 0) sentinel.textContent = searching ? "暂无搜索结果" : "暂无情报";
       else sentinel.textContent = state.feedHasMore ? "下拉加载更多" : "已经到底了";
     }
   } catch (err) {
@@ -647,7 +680,6 @@ function renderSourceUpgradePanel() {
       `).join("")}
     </div>
   `;
-  $$("#sourceUpgradePanel [data-view-jump]").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.viewJump)));
 }
 
 function renderCredibilityPassport(passport) {
@@ -1132,7 +1164,9 @@ async function openRumor(id) {
 }
 
 function renderDecisionBrief(brief) {
-  $("#detailDecisionBrief").innerHTML = `
+  const root = $("#detailDecisionBrief");
+  if (!root) return;
+  root.innerHTML = `
     <div class="decision-head">
       <div>
         <span class="eyebrow">DECISION BRIEF</span>
@@ -1154,9 +1188,11 @@ function renderDecisionBrief(brief) {
 }
 
 function renderConsensusSnapshot(snapshot) {
+  const root = $("#detailConsensus");
+  if (!root) return;
   const metrics = snapshot.metrics || {};
   const peers = snapshot.top_peers || [];
-  $("#detailConsensus").innerHTML = `
+  root.innerHTML = `
     <div class="consensus-head">
       <div>
         <span class="eyebrow">COMMUNITY CONSENSUS</span>
@@ -1186,7 +1222,9 @@ function renderConsensusSnapshot(snapshot) {
 }
 
 function renderVerificationLedger(items) {
-  $("#detailLedger").innerHTML = `
+  const root = $("#detailLedger");
+  if (!root) return;
+  root.innerHTML = `
     <div class="block-head">
       <div>
         <span class="eyebrow">VALUE LEDGER</span>
@@ -1209,7 +1247,9 @@ function renderVerificationLedger(items) {
 }
 
 function renderVerificationTasks(items, bounties = []) {
-  $("#detailTasks").innerHTML = `
+  const root = $("#detailTasks");
+  if (!root) return;
+  root.innerHTML = `
     <div class="block-head">
       <div>
         <span class="eyebrow">FEEDBACK TASKS</span>
@@ -1236,7 +1276,7 @@ function renderVerificationTasks(items, bounties = []) {
     if (action === "有用") reactToActiveRumor("useful");
     else if (action === "存疑") reactToActiveRumor("doubt");
     else if (action === "解锁") return;
-    $("#commentInput")?.focus();
+    $("#commentForm input[name='content']")?.focus();
   }));
   $$("#detailTasks .bounty-action").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.dataset.action || "讨论";
@@ -1342,10 +1382,12 @@ function outcomeLabel(outcome) {
 }
 
 function renderModerationPanel(moderation = {}) {
+  const root = $("#detailModeration");
+  if (!root) return;
   const reports = Number(moderation.reports || 0);
   const myReports = moderation.my_reports || [];
   const labels = moderation.report_labels || [];
-  $("#detailModeration").innerHTML = `
+  root.innerHTML = `
     <div class="block-head">
       <div>
         <span class="eyebrow">TRUST CHECK</span>
@@ -1851,18 +1893,6 @@ async function summarizeRumor() {
   }
 }
 
-async function loadBacktests() {
-  const data = await api("/api/backtests");
-  $("#backtestRows").innerHTML = data.items.map((r) => `
-    <tr>
-      <td>${r.target}</td><td>${r.ai_tier}${r.ai_score}</td><td>${r.code || "-"}</td>
-      <td>${pct(r.ret_t1_1)}</td><td>${pct(r.ret_t1_5)}</td><td>${pct(r.ret_t1_20)}</td>
-      <td>${r.signal_value != null ? r.signal_value.toFixed(1) : "-"}</td>
-      <td><span class="outcome-text ${esc(r.outcome?.state || "pending")}">${esc(outcomeLabel(r.outcome))}</span></td>
-    </tr>
-  `).join("");
-}
-
 async function loadLeaderboard() {
   const data = await api("/api/leaderboard");
   $("#leaderboard").innerHTML = `
@@ -2076,17 +2106,26 @@ function hydrateInviteFromUrl() {
   if ($("#regInvite")) $("#regInvite").value = state.inviteCodeFromUrl;
 }
 
+function jumpToView(view) {
+  return switchView(view);
+}
+
 // ── 事件绑定 ───────────────────────────────────────────────
 function wire() {
-  $$(".nav button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
-  $$("[data-view-jump]").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.viewJump)));
+  $$(".nav button").forEach((b) => b.addEventListener("click", () => jumpToView(b.dataset.view)));
+  $$(".back-feed-btn").forEach((b) => b.addEventListener("click", () => jumpToView("feed")));
   document.body.addEventListener("click", async (e) => {
+    const jump = e.target.closest("[data-view-jump]");
+    if (jump) {
+      jumpToView(jump.dataset.viewJump);
+      return;
+    }
     const invite = e.target.closest(".copy-invite, .copy-invite-copy, .invite-momentum-action");
     const provider = e.target.closest(".provider-snapshot.provider-open");
     if (provider) return openProviderProfile(provider.dataset.id);
     if (!invite || invite.disabled) return;
     if (invite.dataset.key === "review_rank") {
-      switchView("rank");
+      jumpToView("rank");
       return;
     }
     const text = invite.dataset.invite || invite.dataset.copy || "";
@@ -2123,7 +2162,15 @@ function wire() {
     }, { rootMargin: "200px" }).observe(sentinel);
   }
   $("#searchInput").addEventListener("input", debounce(() => loadRumors(true), 250));
-  $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; loadRumors(true); });
+  $("#searchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runSearch();
+    }
+  });
+  $("#searchBtn").addEventListener("click", runSearch);
+  $("#clearSearchBtn").addEventListener("click", clearSearch);
+  $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; runSearch(); });
   $("#refreshFeed").addEventListener("click", async () => { await loadCommunityInsight(); await loadDailyStats(); });
   $("#refreshWatch")?.addEventListener("click", loadWatchPage);
   $("#rumorGrid").addEventListener("click", (e) => {
