@@ -138,6 +138,18 @@ def test_detail_watch_buttons_have_container_and_render_call():
     assert '("#detailWatchTargets")?.addEventListener("click"' in js
 
 
+def test_watchlist_buttons_toggle_between_add_and_remove():
+    js = app_js()
+
+    assert "function renderWatchToggle(stock, watched" in js
+    assert 'data-watch-action="${active ? "remove" : "add"}"' in js
+    assert '${active ? "-" : "+"}' in js
+    assert "toggleWatchFromButton(btn)" in js
+    assert 'if (btn.dataset.watchAction === "remove")' in js
+    assert "await removeWatch(code)" in js
+    assert "await addWatch({ code, name })" in js
+
+
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         old_id = seed_rumor(target="远期搜索股份", code="600123.sh", date="2026-05-20")

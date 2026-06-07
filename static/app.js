@@ -545,7 +545,21 @@ async function addWatch(item) {
   }
 }
 
+async function toggleWatchFromButton(btn) {
+  const code = btn.dataset.code || "";
+  const name = btn.dataset.name || code;
+  if (btn.dataset.watchAction === "remove") {
+    await removeWatch(code);
+    return;
+  }
+  await addWatch({ code, name });
+}
+
 async function removeWatch(code) {
+  if (!isLoggedIn()) {
+    promptLogin("登录后才能管理自选股。");
+    return;
+  }
   try {
     await api(`/api/watchlist/${encodeURIComponent(code)}`, { method: "DELETE" });
     if (state.view === "watch") await loadWatchPage();
@@ -553,6 +567,16 @@ async function removeWatch(code) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+function renderWatchToggle(stock, watched, extraClass = "") {
+  if (!stock?.code) return "";
+  const active = !!watched;
+  return `
+    <button type="button" class="watch-add-btn ${active ? "active-filter" : ""} ${esc(extraClass)}" data-watch-action="${active ? "remove" : "add"}" data-code="${esc(stock.code)}" data-name="${esc(stock.name || stock.code)}" title="${active ? "移出自选股" : "加入自选股"}">
+      ${active ? "-" : "+"}
+    </button>
+  `;
 }
 
 async function setProviderFollow(providerId, follow) {
@@ -836,9 +860,7 @@ function renderRecentBacktestShowcase(showcase) {
       const retClass = ret != null ? (ret >= 0 ? "pos" : "neg") : "";
       const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean).join(" / ") : "";
       const firstStock = item.unlocked ? (item.stock_codes || []).find((stock) => stock.code) : null;
-      const watchAdd = firstStock
-        ? `<button type="button" class="watch-add-btn showcase-watch-add" data-code="${esc(firstStock.code)}" data-name="${esc(firstStock.name || firstStock.code)}" title="加入自选股">+</button>`
-        : "";
+      const watchAdd = renderWatchToggle(firstStock, item.watched, "showcase-watch-add");
       return `
         <article class="showcase-item" data-id="${item.id}">
           <span class="badge">${esc(item.ai_tier || "")}</span>
@@ -856,7 +878,7 @@ function renderRecentBacktestShowcase(showcase) {
   $$("#recentBacktestShowcase .showcase-watch-add").forEach((btn) => btn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    addWatch({ code: btn.dataset.code, name: btn.dataset.name });
+    toggleWatchFromButton(btn);
   }));
 }
 
@@ -1071,9 +1093,7 @@ function renderCard(item) {
   const codes = item.unlocked ? (item.stock_codes || []).map((stock) => stock.code).filter(Boolean) : [];
   const firstStock = item.unlocked ? (item.stock_codes || []).find((stock) => stock.code) : null;
   const codeLabel = codes.length ? codes.join(" / ") : "";
-  const watchAdd = firstStock
-    ? `<button type="button" class="watch-add-btn" data-code="${esc(firstStock.code)}" data-name="${esc(firstStock.name || firstStock.code)}" title="加入自选股">+</button>`
-    : "";
+  const watchAdd = renderWatchToggle(firstStock, item.watched);
   return `
     <article class="card ${locked}" data-rights-fp="${esc(rights.fingerprint || "")}" data-rights-scope="${esc(rights.scope || "rumor-content")}">
       <span class="rights-mark" aria-hidden="true">${esc(rights.mark || "")}:${esc(rights.fingerprint || "")}</span>
@@ -1340,8 +1360,8 @@ function renderWatchTargets(stocks, watched) {
   if (!target) return;
   const usable = (stocks || []).filter((item) => item.code);
   target.innerHTML = usable.map((item) => `
-    <button type="button" class="ghost detail-watch-btn ${watched ? "active-filter" : ""}" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}">
-      ${watched ? "已关注" : "关注"} ${esc(item.name || item.code)}
+    <button type="button" class="ghost detail-watch-btn ${watched ? "active-filter" : ""}" data-watch-action="${watched ? "remove" : "add"}" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}">
+      ${watched ? "移出自选" : "关注"} ${esc(item.name || item.code)}
     </button>
   `).join("");
 }
@@ -2180,7 +2200,7 @@ function wire() {
     if (btn) {
       e.preventDefault();
       e.stopPropagation();
-      addWatch({ code: btn.dataset.code, name: btn.dataset.name });
+      toggleWatchFromButton(btn);
     }
   });
   $("#submitForm").addEventListener("submit", submitRumor);
@@ -2223,7 +2243,7 @@ function wire() {
   });
   $("#detailWatchTargets")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".detail-watch-btn");
-    if (btn) addWatch({ code: btn.dataset.code, name: btn.dataset.name });
+    if (btn) toggleWatchFromButton(btn);
   });
   $("#detailModeration")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".report-btn");

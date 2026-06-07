@@ -2630,6 +2630,11 @@ textarea { min-height: 180px; resize: vertical; }
   font-weight: 700;
 }
 .watch-add-btn:hover { filter: brightness(0.95); }
+.watch-add-btn.active-filter {
+  background: #fff;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
 .card-head small { display: none; }
 .badge {
   width: 26px;
