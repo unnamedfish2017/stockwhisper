@@ -46,6 +46,10 @@ def app_js() -> str:
     return APP_JS.read_text(encoding="utf-8")
 
 
+def styles_css() -> str:
+    return (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+
 def test_search_controls_are_clickable_and_wired():
     html = html_text()
     js = app_js()
@@ -148,6 +152,18 @@ def test_watchlist_buttons_toggle_between_add_and_remove():
     assert 'if (btn.dataset.watchAction === "remove")' in js
     assert "await removeWatch(code)" in js
     assert "await addWatch({ code, name })" in js
+
+
+def test_watchlist_updates_refresh_recent_signals_and_use_auto_height():
+    js = app_js()
+    css = styles_css()
+
+    assert re.search(r"async function addWatch[\s\S]+await loadCommunityInsight\(\);[\s\S]+await loadRumors\(true\);", js)
+    assert re.search(r"async function removeWatch[\s\S]+await loadCommunityInsight\(\);[\s\S]+await loadRumors\(true\);", js)
+    assert re.search(r"\.watch-signal\s*\{[\s\S]*height:\s*auto;", css)
+    assert re.search(r"\.watch-signal\s*\{[\s\S]*min-height:\s*72px;", css)
+    assert re.search(r"\.watch-signal\s*\{[\s\S]*grid-template-columns:\s*30px minmax\(0, 1fr\) 44px;", css)
+    assert re.search(r"\.watch-signal p\s*\{[\s\S]*overflow-wrap:\s*anywhere;", css)
 
 
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):

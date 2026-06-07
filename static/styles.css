@@ -2406,17 +2406,27 @@ textarea { min-height: 180px; resize: vertical; }
   border-top: 1px solid var(--line);
 }
 .watch-signal {
+  width: 100%;
+  height: auto;
+  min-height: 72px;
   border: 0;
   border-bottom: 1px solid var(--line);
   background: transparent;
   padding: 11px 0;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) 44px;
   gap: 10px;
   align-items: start;
   text-align: left;
+  color: var(--ink);
+  overflow: visible;
 }
 .watch-signal:hover { background: var(--bg); }
+.watch-signal > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
 .watch-signal strong {
   display: flex;
   flex-wrap: wrap;
@@ -2433,10 +2443,12 @@ textarea { min-height: 180px; resize: vertical; }
   font-size: 12px;
 }
 .watch-signal p {
-  margin: 4px 0;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .watch-signal small {
   color: var(--muted);
@@ -2445,6 +2457,7 @@ textarea { min-height: 180px; resize: vertical; }
 .watch-signal > b {
   font-size: 14px;
   color: var(--accent-strong);
+  justify-self: end;
 }
 .framework-row {
   display: grid;

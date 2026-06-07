@@ -539,6 +539,7 @@ async function addWatch(item) {
   try {
     await api("/api/watchlist", { method: "POST", body: JSON.stringify(item) });
     if (state.view === "watch") await loadWatchPage();
+    await loadCommunityInsight();
     await loadRumors(true);
   } catch (err) {
     alert(err.message);
@@ -563,6 +564,7 @@ async function removeWatch(code) {
   try {
     await api(`/api/watchlist/${encodeURIComponent(code)}`, { method: "DELETE" });
     if (state.view === "watch") await loadWatchPage();
+    await loadCommunityInsight();
     await loadRumors(true);
   } catch (err) {
     alert(err.message);
