@@ -4,9 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>股情报</title>
+    <meta name="sw-origin" content="StockWhisper::CC-BY-NC-SA-4.0::openclaw-community-intel" />
+    <meta name="sw-copy-policy" content="append-visible-and-zero-width-rights-mark" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body>
+  <body data-sw-mark="StockWhisper::open-community-intel">
+    <span class="rights-mark" aria-hidden="true">StockWhisper CC-BY-NC-SA openclaw-community-intel</span>
     <div class="app">
       <aside class="rail">
         <div class="brand">
@@ -42,12 +45,59 @@
             <button id="logoutBtn" class="ghost">退出</button>
           </div>
         </header>
+        <section id="inviteLanding" class="invite-landing"></section>
 
         <section class="view active" id="feedView">
+          <div class="command-center">
+            <section class="market-pulse">
+              <div>
+                <span class="eyebrow">COMMUNITY INTEL</span>
+                <h2>今日值得复盘的 A 股情报</h2>
+                <p id="pulseCopy">加载社区热度和信息源表现...</p>
+                <div id="valueProof" class="value-proof"></div>
+                <div id="dailyBrief" class="daily-brief"></div>
+                <div id="dailyWorkflow" class="daily-workflow"></div>
+                <div id="opportunityDeck" class="opportunity-deck"></div>
+                <div id="bountyBoard" class="bounty-board"></div>
+                <div id="actionQueue" class="action-queue"></div>
+              </div>
+              <div class="pulse-metrics" id="pulseMetrics"></div>
+            </section>
+            <div class="side-stack">
+              <section class="activation-panel" id="activationPanel"></section>
+              <section class="invite-panel" id="invitePanel"></section>
+              <section class="growth-panel" id="growthPanel"></section>
+              <section class="watch-panel" id="watchPanel"></section>
+              <section class="provider-follow-panel" id="providerFollowPanel"></section>
+            </div>
+          </div>
+          <section class="activity-panel" id="activityPanel"></section>
+          <section class="exchange-panel" id="exchangePanel"></section>
+          <section class="trust-center-panel" id="trustCenterPanel"></section>
+          <div class="insight-grid">
+            <section class="insight-block">
+              <div class="block-head">
+                <h3>高分线索</h3>
+                <button id="loadHighlights" class="ghost">更新</button>
+              </div>
+              <div id="recentBacktestShowcase" class="backtest-showcase"></div>
+              <div id="todaySignalBoard" class="today-signal-board"></div>
+              <div id="highlightList" class="highlight-list"></div>
+            </section>
+            <section class="insight-block">
+              <div class="block-head">
+                <h3>价值机制</h3>
+                <button class="ghost" data-view-jump="rank">看榜单</button>
+              </div>
+              <div id="valueFramework" class="framework-list"></div>
+            </section>
+          </div>
+          <section class="topic-radar" id="topicRadar"></section>
+          <section class="community-rooms" id="communityRooms"></section>
           <div class="section-head">
             <div>
               <h2>当日情报等级</h2>
-              <p>首页按等级统计当日条数，C 级免费，其余按等级或衰减贡献度开放。</p>
+              <p>按 S/A/B/C 聚合当日线索，贡献度采用 30 天半衰期。</p>
             </div>
             <button id="refreshFeed">刷新</button>
           </div>
@@ -99,9 +149,11 @@
             </div>
             <div class="form-actions">
               <button id="summarizeBtn" type="button" class="ghost">AI 提炼</button>
+              <button id="previewScoreBtn" type="button" class="ghost">评分预览</button>
               <button type="submit">提交并解锁</button>
             </div>
           </form>
+          <div id="qualityPreview" class="quality-preview"></div>
           <div id="submitResult" class="result"></div>
         </section>
 
@@ -136,9 +188,10 @@
           <div class="section-head">
             <div>
               <h2>用户评分</h2>
-              <p>经验值来自分享质量与后续表现，等级决定可见范围和直看额度。</p>
+              <p>信息源由贡献度、信誉分、回测表现、独特性和邀请贡献共同排序。</p>
             </div>
           </div>
+          <section id="sourceUpgradePanel" class="source-upgrade-panel"></section>
           <div id="leaderboard" class="rank-list"></div>
         </section>
       </main>
@@ -151,6 +204,7 @@
     <dialog id="authDialog">
       <form method="dialog" class="auth-panel">
         <h3 id="authTitle">登录</h3>
+        <section id="authIncentive" class="auth-incentive"></section>
 
         <!-- 登录 -->
         <div id="loginForm">
@@ -162,10 +216,10 @@
         </div>
 
         <!-- 注册表单（单页） -->
-        <div id="regForm" style="display:none">
+          <div id="regForm" style="display:none">
           <input id="regUser" placeholder="用户名" autocomplete="username" />
           <div class="pass-wrap">
-            <input id="regPass" type="password" placeholder="密码（至少4位）" autocomplete="new-password" />
+            <input id="regPass" type="password" placeholder="密码（至少6位）" autocomplete="new-password" />
             <button type="button" class="eye-btn" data-target="regPass">👁</button>
           </div>
           <div class="pass-wrap">
@@ -177,6 +231,7 @@
             <button id="sendCodeBtn" type="button">发送验证码</button>
           </div>
           <input id="regCode" placeholder="6位验证码" maxlength="6" inputmode="numeric" />
+          <input id="regInvite" placeholder="邀请码（可选）" autocomplete="off" />
         </div>
 
         <div class="dialog-actions">
@@ -188,6 +243,67 @@
         </div>
         <p id="authMsg"></p>
       </form>
+    </dialog>
+
+    <dialog id="rumorDialog">
+      <article class="rumor-detail">
+        <span id="detailRightsMark" class="rights-mark" aria-hidden="true"></span>
+        <header>
+          <div>
+            <span id="detailTier" class="badge">S90</span>
+            <h3 id="detailTarget">情报详情</h3>
+          </div>
+          <button id="detailClose" class="ghost">关闭</button>
+        </header>
+        <div id="detailMeta" class="detail-meta"></div>
+        <div id="detailVerdict" class="detail-verdict"></div>
+        <div id="detailProvider" class="detail-provider"></div>
+        <div id="detailWatchTargets" class="detail-watch-targets"></div>
+        <section id="detailDecisionBrief" class="decision-brief"></section>
+        <section id="detailConsensus" class="consensus-snapshot"></section>
+        <p id="detailLogic" class="detail-logic"></p>
+        <div id="detailPoints" class="detail-points"></div>
+        <section id="detailTasks" class="verification-tasks"></section>
+        <section id="detailLedger" class="verification-ledger"></section>
+        <div id="detailScores" class="detail-scores"></div>
+        <pre id="detailRaw"></pre>
+        <div id="detailBacktest" class="detail-backtest"></div>
+        <section id="detailModeration" class="moderation-panel"></section>
+        <section class="discussion-panel">
+          <div class="block-head">
+            <h3>社区求证</h3>
+            <div id="detailReactions" class="reaction-row"></div>
+          </div>
+          <form id="commentForm" class="comment-form">
+            <input name="content" placeholder="补充验证、渠道口径、风险点" maxlength="500" />
+            <button type="submit">发布</button>
+          </form>
+          <div id="commentList" class="comment-list"></div>
+        </section>
+      </article>
+    </dialog>
+
+    <dialog id="providerDialog">
+      <article class="provider-detail">
+        <header>
+          <div>
+            <span id="providerGrade" class="badge">源分</span>
+            <h3 id="providerName">信息源档案</h3>
+          </div>
+          <button id="providerClose" class="ghost">关闭</button>
+        </header>
+        <div id="providerMeta" class="provider-meta"></div>
+        <div id="providerFollowAction" class="provider-follow-action"></div>
+        <div id="providerScores" class="provider-scores"></div>
+        <section id="providerProofPanel" class="provider-proof-panel"></section>
+        <div id="providerTrack" class="provider-track"></div>
+        <section>
+          <div class="block-head">
+            <h3>近期线索</h3>
+          </div>
+          <div id="providerRecent" class="provider-recent"></div>
+        </section>
+      </article>
     </dialog>
 
     <script src="/static/app.js"></script>

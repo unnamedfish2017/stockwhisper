@@ -2,6 +2,7 @@
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/stock_lookup.json
 
 # 私有种子数据
 ../私有信息/
@@ -25,6 +26,7 @@ build/
 # 编辑器
 .vscode/
 .idea/
+.ipynb_checkpoints/
 *.swp
 .DS_Store
 
