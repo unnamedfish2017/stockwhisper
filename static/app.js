@@ -1130,6 +1130,7 @@ async function openRumor(id) {
   $("#detailMeta").innerHTML = "";
   $("#detailBacktest").innerHTML = "";
   $("#detailLogic").textContent = "";
+  $("#detailWatchTargets").innerHTML = "";
   $("#detailPoints").innerHTML = "";
   try {
     const data = await api(`/api/rumors/${id}`);
@@ -1155,6 +1156,7 @@ async function openRumor(id) {
       <small>${esc(bt.outcome?.summary || "")}</small>
     ` : "";
     $("#detailLogic").textContent = item.logic || "";
+    renderWatchTargets(item.stock_codes || [], item.watched);
     $("#detailPoints").innerHTML = (item.key_points || []).map((p) => `<span>${esc(p)}</span>`).join("");
     renderDetailDiscussion(item.discussion || {}, data.comments || []);
   } catch (err) {

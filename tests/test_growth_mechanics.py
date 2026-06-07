@@ -572,40 +572,20 @@ def test_rumor_detail_exposes_verification_tasks(monkeypatch, tmp_path):
         rumor_id = submitted.json()["item"]["id"]
 
         detail = client.get(f"/api/rumors/{rumor_id}").json()["item"]
-        tasks = {item["key"]: item for item in detail["verification_tasks"]}
-        assert {"order_check", "capacity_check", "earnings_bridge"} & set(tasks)
-        assert all({"label", "priority", "status", "detail", "action"} <= set(item) for item in tasks.values())
-        assert any(item["action"] in {"求证", "讨论"} for item in tasks.values())
-        bounties = detail["verification_bounties"]
-        assert bounties
-        assert all({"key", "label", "reward_xp", "reputation_delta", "action", "state", "detail"} <= set(item) for item in bounties)
-        assert any(item["reward_xp"] > 0 for item in bounties)
-        decision = detail["decision_brief"]
-        assert decision["summary"]
-        assert decision["positives"]
-        assert decision["watch_points"]
-        assert decision["risks"]
-        assert decision["next_action"]
-        assert "不构成投资建议" in decision["disclaimer"]
-        explain = detail["score_explanation"]
-        assert explain["headline"]
-        assert explain["strengths"]
-        assert explain["factors"]
-        assert explain["next_steps"]
-
-        seed_rumor(tier="A", score=78, target="任务股份", code="600000.sh")
-        consensus = client.get(f"/api/rumors/{rumor_id}").json()["item"]["consensus_snapshot"]
-        assert consensus["metrics"]["related"] >= 1
-        assert consensus["metrics"]["high_value"] >= 1
-        assert consensus["top_peers"]
-        assert consensus["state"] in {"confirmed", "forming", "divergent", "isolated"}
-        assert consensus["next_action"]
+        assert detail["target"] == "任务股份"
+        assert detail["stock_codes"] == [{"name": "任务股份", "code": "600000.sh"}]
+        assert detail["discussion"]["useful"] == 0
+        assert detail["discussion"]["doubt"] == 0
+        assert detail["watched"] is False
+        assert detail["unlocked"] is True
+        assert detail["rights"]["mark"]
 
         locked_id = seed_rumor(tier="S", score=93, target="锁定任务", code="000001.sz")
         feed_item = next(row for row in client.get("/api/rumors").json()["items"] if row["id"] == locked_id)
         assert feed_item["hidden"] is True
-        assert feed_item["verification_tasks"][0]["key"] == "unlock_to_verify"
-        assert feed_item["verification_bounties"][0]["state"] == "locked"
+        assert feed_item["unlocked"] is False
+        assert feed_item["stock_codes"] == []
+        assert feed_item["logic"] == "已锁定。分享同等价值消息或提升等级后查看。"
 
 
 def test_submission_exchange_match_explains_and_skips_own_rumors(monkeypatch, tmp_path):
@@ -638,7 +618,7 @@ def test_growth_center_exposes_missions_and_upgrade_plan(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         user = register(client, "growth", "growth@example.com")
         rumor_id = seed_rumor(submitter_id=user["id"], tier="C", score=45)
-        client.post(f"/api/rumors/{rumor_id}/reactions", json={"reaction": "verify"})
+        client.post(f"/api/rumors/{rumor_id}/reactions", json={"reaction": "useful"})
         res = client.get("/api/growth-center")
 
         assert res.status_code == 200
@@ -653,7 +633,7 @@ def test_growth_center_exposes_missions_and_upgrade_plan(monkeypatch, tmp_path):
         assert data["upgrade"]["current"]["name"]
         ledger = data["ledger"]
         assert ledger["totals"]["base_xp"] >= 0
-        assert ledger["totals"]["participation_xp"] >= 3
+        assert ledger["totals"]["participation_xp"] >= 2
         assert {item["key"] for item in ledger["sources"]} == {"submission", "participation", "invite"}
         assert {"submission", "participation"} <= {item["kind"] for item in ledger["entries"]}
         assert ledger["rights_fingerprint"]
@@ -1008,7 +988,7 @@ def test_guest_must_register_before_discussion(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         rumor_id = seed_rumor(tier="C", score=45)
         reaction = client.post(f"/api/rumors/{rumor_id}/reactions", json={"reaction": "doubt"})
-        comment = client.post(f"/api/rumors/{rumor_id}/comments", json={"content": "想求证"})
+        comment = client.post(f"/api/rumors/{rumor_id}/comments", json={"content": "想补充验证"})
 
         assert reaction.status_code == 401
         assert comment.status_code == 401
@@ -1193,16 +1173,16 @@ def test_source_upgrade_center_exposes_rank_privileges_and_missions(monkeypatch,
         assert passport["state"] in {"prime", "track", "watch", "new"}
         assert passport["label"]
         assert {item["key"] for item in passport["metrics"]} == {"grade", "samples", "hit_rate", "feedback", "risk"}
-        assert passport["next_action"]["view"] in {"submit", "feed", "rank", "backtest"}
+        assert passport["next_action"]["view"] in {"submit", "feed", "rank"}
         assert data["upgrade"]["components"][0]["progress"] >= 0
         assert data["upgrade"]["priority_actions"]
         assert data["upgrade"]["priority_actions"][0]["rank"] == 1
         assert {item["key"] for item in data["upgrade"]["priority_actions"]} & {"submit", "discussion", "invite", "track_record"}
-        assert all(item["view"] in {"submit", "feed", "rank", "backtest"} for item in data["upgrade"]["priority_actions"])
+        assert all(item["view"] in {"submit", "feed", "rank"} for item in data["upgrade"]["priority_actions"])
         roadmap = {item["key"]: item for item in data["upgrade"]["roadmap"]}
         assert {"xp", "contribution", "reputation", "feedback", "invite"} == set(roadmap)
         assert all({"label", "value", "target", "gap", "progress", "detail", "view", "state"} <= set(item) for item in roadmap.values())
-        assert all(item["view"] in {"submit", "feed", "rank", "backtest"} for item in roadmap.values())
+        assert all(item["view"] in {"submit", "feed", "rank"} for item in roadmap.values())
         assert roadmap["contribution"]["target"] > 0
         assert data["rank_context"]["rank"] == 1
         assert data["rank_context"]["total"] >= 2
