@@ -59,6 +59,28 @@ def test_send_code_falls_back_to_log_when_smtp_missing(monkeypatch, tmp_path, ca
     assert re.match(r"^\d{6}$", rows[0]["code"])
 
 
+def test_registration_code_email_uses_formal_copy(monkeypatch, tmp_path):
+    sent = {}
+
+    def capture_email(email: str, code: str, subject: str, body: str) -> str:
+        sent.update({"email": email, "code": code, "subject": subject, "body": body})
+        return "smtp"
+
+    monkeypatch.setattr(main, "deliver_email_code", capture_email)
+    with make_client(monkeypatch, tmp_path) as client:
+        res = client.post("/api/send-code", json={"email": "fish@example.com"})
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {"ok": True, "delivery": "smtp"}
+    assert sent["email"] == "fish@example.com"
+    assert sent["subject"] == "股情报 StockWhisper 注册验证码"
+    assert sent["code"] in sent["body"]
+    assert "欢迎加入股情报 StockWhisper 社区" in sent["body"]
+    assert "期待您在社区中发现更有价值的信号" in sent["body"]
+    assert "验证码 5 分钟内有效" in sent["body"]
+    assert "如果这不是您本人发起的注册请求" in sent["body"]
+
+
 def test_registered_email_cannot_receive_new_code(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         register(client, "alpha", "alpha@example.com")
@@ -122,6 +144,30 @@ def test_password_reset_updates_password_and_clears_sessions(monkeypatch, tmp_pa
         assert new_login.status_code == 200
         email_login = client.post("/api/login", json={"username": "alpha@example.com", "password": "newsecret"})
         assert email_login.status_code == 200
+
+
+def test_password_reset_code_email_uses_formal_copy(monkeypatch, tmp_path):
+    sent = {}
+
+    def capture_email(email: str, code: str, subject: str, body: str) -> str:
+        sent.update({"email": email, "code": code, "subject": subject, "body": body})
+        return "smtp"
+
+    monkeypatch.setattr(main, "deliver_email_code", capture_email)
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "alpha", "alpha@example.com")
+
+        res = client.post("/api/password-reset/send-code", json={"account": "alpha"})
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {"ok": True, "delivery": "smtp", "masked_email": "alp***@ex***e.com"}
+    assert sent["email"] == "alpha@example.com"
+    assert sent["subject"] == "股情报 StockWhisper 密码重置验证码"
+    assert sent["code"] in sent["body"]
+    assert "您正在为股情报 StockWhisper 账号重置密码" in sent["body"]
+    assert "为保护账号安全" in sent["body"]
+    assert "验证码 5 分钟内有效" in sent["body"]
+    assert "您的原密码不会因此被修改" in sent["body"]
 
 
 def test_password_reset_rejects_unregistered_email(monkeypatch, tmp_path):

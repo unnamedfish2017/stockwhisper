@@ -226,6 +226,29 @@ def send_verification_email(email: str, code: str, subject: str = "股情报 注
             s.send_message(msg)
 
 
+def registration_verification_email_body(code: str) -> str:
+    return (
+        "欢迎加入股情报 StockWhisper 社区。\n\n"
+        "您正在创建股情报账号。这里汇集 A 股情报线索、社区反馈、回测表现和信息源成长记录，"
+        "期待您在社区中发现更有价值的信号，也分享可验证的高质量信息。\n\n"
+        f"本次注册验证码：{code}\n\n"
+        "验证码 5 分钟内有效，请勿转发或泄露给他人。\n"
+        "如果这不是您本人发起的注册请求，请忽略本邮件。\n\n"
+        "股情报 StockWhisper"
+    )
+
+
+def password_reset_verification_email_body(code: str) -> str:
+    return (
+        "您正在为股情报 StockWhisper 账号重置密码。\n\n"
+        "为保护账号安全，请在页面中输入以下验证码完成验证：\n\n"
+        f"密码重置验证码：{code}\n\n"
+        "验证码 5 分钟内有效，请勿转发或泄露给他人。\n"
+        "如果这不是您本人发起的操作，请忽略本邮件；您的原密码不会因此被修改。\n\n"
+        "股情报 StockWhisper"
+    )
+
+
 def can_fallback_to_logged_email_code(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(
@@ -5753,8 +5776,8 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
     delivery = deliver_email_code(
         email,
         code,
-        "股情报 注册验证码",
-        f"您的注册验证码是：{code}\n5 分钟内有效，请勿泄露。",
+        "股情报 StockWhisper 注册验证码",
+        registration_verification_email_body(code),
     )
     return {"ok": True, "delivery": delivery}
 
@@ -5781,8 +5804,8 @@ def send_password_reset_code(payload: PasswordResetSendPayload) -> dict[str, Any
     delivery = deliver_email_code(
         email,
         code,
-        "股情报 密码重置验证码",
-        f"您的密码重置验证码是：{code}\n5 分钟内有效。如非本人操作，请忽略本邮件。",
+        "股情报 StockWhisper 密码重置验证码",
+        password_reset_verification_email_body(code),
     )
     return {"ok": True, "delivery": delivery, "masked_email": mask_email(email)}
 
