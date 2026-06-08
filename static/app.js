@@ -2069,8 +2069,8 @@ function renderAuthIncentive(step = "login") {
   const opportunity = state.opportunity || state.community?.opportunity_summary || {};
   const stats = state.community?.stats || {};
   const registeredCopy = invite.valid
-    ? `使用邀请码 ${esc(invite.invite_code || "")} 注册，获得 20 XP 和 2 次直看额度。`
-    : "注册后获得永久成长记录、1 次直看额度，并可通过投稿/邀请继续解锁。";
+    ? `使用邀请码 ${esc(invite.invite_code || "")} 注册，获得 20 XP 和 10 次直看额度。`
+    : "注册后获得永久成长记录、10 次直看额度，并可通过投稿/邀请继续解锁。";
   const isForgot = step === "forgot";
   const headline = isForgot ? "用绑定邮箱验证码重设密码" : (step === "reg" ? "注册后把浏览变成可积累的情报账户" : "登录后恢复你的自选、解锁和信息源成长");
   root.innerHTML = `

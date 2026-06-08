@@ -217,6 +217,7 @@ def test_invite_registration_rewards_both_users(monkeypatch, tmp_path):
         assert preview_data["invite_code"] == inviter["invite_code"]
         assert preview_data["inviter"]["display_name"] == "alpha"
         assert "20 XP" in preview_data["invitee_reward"]
+        assert "10 次直看额度" in preview_data["invitee_reward"]
         landing = preview_data["landing_value"]
         assert landing["headline"]
         assert len(landing["proof_points"]) == 3
@@ -241,12 +242,12 @@ def test_invite_registration_rewards_both_users(monkeypatch, tmp_path):
         events = main.query("select reward_xp, reward_quota from referral_events")
 
         assert inviter_row["xp"] == 30
-        assert inviter_row["direct_quota"] == 2
+        assert inviter_row["direct_quota"] == 20
         assert inviter_row["invite_count"] == 1
         assert invited["xp"] == 20
-        assert invited_row["direct_quota"] == 2
+        assert invited_row["direct_quota"] == 10
         assert invited_row["invited_by"] is not None
-        assert [dict(e) for e in events] == [{"reward_xp": 30, "reward_quota": 1}]
+        assert [dict(e) for e in events] == [{"reward_xp": 30, "reward_quota": 10}]
 
         client.post("/api/logout")
         client.post("/api/login", json={"username": "alpha", "password": "secret12"})
@@ -257,12 +258,12 @@ def test_invite_registration_rewards_both_users(monkeypatch, tmp_path):
         assert data["invite_code"] == inviter["invite_code"]
         assert data["stats"]["invite_count"] == 1
         assert data["stats"]["reward_xp"] == 30
-        assert data["stats"]["reward_quota"] == 1
+        assert data["stats"]["reward_quota"] == 10
         assert data["invite_plan"]["state"] == "active"
         assert data["invite_plan"]["next_needed"] == 2
         assert "邀请" in data["invite_plan"]["headline"]
         assert data["invite_plan"]["share_copy"]
-        assert data["momentum"]["earned_value"] == "30 XP + 1 次直看额度"
+        assert data["momentum"]["earned_value"] == "30 XP + 10 次直看额度"
         assert data["momentum"]["next_needed"] == 2
         assert data["momentum"]["next_reward"]
         assert {item["key"] for item in data["momentum"]["actions"]} == {"copy_link", "copy_pitch", "review_rank"}
@@ -287,10 +288,10 @@ def test_invite_code_accepts_shared_link_or_watermarked_text(monkeypatch, tmp_pa
         invited_row = main.query("select xp, direct_quota, invited_by from users where username = 'beta'")[0]
 
         assert invited["xp"] == 20
-        assert invited_row["direct_quota"] == 2
+        assert invited_row["direct_quota"] == 10
         assert invited_row["invited_by"] == inviter["id"]
         assert inviter_row["xp"] == 30
-        assert inviter_row["direct_quota"] == 2
+        assert inviter_row["direct_quota"] == 20
         assert inviter_row["invite_count"] == 1
 
 
@@ -324,7 +325,7 @@ def test_activation_center_explains_guest_and_registered_value(monkeypatch, tmp_
         assert registered["activation_playbook"]["stage"] == "activating"
         assert registered["activation_playbook"]["primary_action"]["key"] in {"watch", "submit", "invite"}
         assert registered["activation_playbook"]["progress"] > 0
-        assert registered["summary"]["direct_quota"] >= 1
+        assert registered["summary"]["direct_quota"] == 10
         starter = registered["starter_watchlist"]["items"][0]
         added = client.post("/api/watchlist", json={"code": starter["code"], "name": starter["name"]})
         assert added.status_code == 200
@@ -542,6 +543,36 @@ def test_submission_uses_llm_logic_score_in_dimension_scores(monkeypatch, tmp_pa
         assert logic_dim["score"] == 91
         assert "标的、催化" in logic_dim["detail"]
         assert detail["ai_reasons"][0].startswith("大模型逻辑评分 91")
+
+
+def test_a_tier_submission_rewards_direct_quota(monkeypatch, tmp_path):
+    def force_a_score(scored, _summary):
+        next_score = dict(scored)
+        next_score["score"] = 78
+        next_score["tier"] = "A"
+        return next_score
+
+    monkeypatch.setattr(main, "score_with_llm_logic", force_a_score)
+    with make_client(monkeypatch, tmp_path) as client:
+        user = register(client, "quota_writer", "quota_writer@example.com")
+        payload = {
+            "target": "额度股份",
+            "stock_codes": '[{"name":"额度股份","code":"600000.sh"}]',
+            "logic": "订单落地带来业绩弹性，客户验证和产能释放同步推进",
+            "raw_content": "额度股份获得大额订单，客户验证进展明确，产能释放节奏清晰。订单交付和客户导入已进入验证节点，政策支持和国产替代需求同步催化，后续业绩有望兑现。",
+            "institution": "测试机构",
+            "recommender": "analyst",
+            "recommendation_date": "2026-06-06",
+        }
+
+        submitted = client.post("/api/rumors", json=payload)
+
+        assert submitted.status_code == 200, submitted.text
+        data = submitted.json()
+        assert data["score"]["tier"] == "A"
+        assert data["submission_reward"]["quota_delta"] == 3
+        row = main.query("select direct_quota from users where id = ?", (user["id"],))[0]
+        assert row["direct_quota"] == 13
 
 
 def test_score_preview_penalizes_duplicate_like_submission(monkeypatch, tmp_path):
@@ -1042,12 +1073,12 @@ def test_direct_unlock_consumes_quota_for_locked_rumor(monkeypatch, tmp_path):
 
         listed = client.get("/api/rumors?tier=S&limit=1").json()["items"][0]
         assert listed["unlocked"] is False
-        assert user["direct_quota"] == 1
+        assert user["direct_quota"] == 10
 
         res = client.post(f"/api/rumors/{listed['id']}/unlock")
         assert res.status_code == 200, res.text
-        assert res.json()["quota_left"] == 0
-        assert client.get("/api/me").json()["user"]["direct_quota"] == 0
+        assert res.json()["quota_left"] == 9
+        assert client.get("/api/me").json()["user"]["direct_quota"] == 9
 
 
 def test_backtest_outcome_is_exposed_on_feed_detail_and_backtest_list(monkeypatch, tmp_path):

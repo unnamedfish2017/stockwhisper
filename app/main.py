@@ -51,6 +51,9 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 EMAIL_CODE_TTL = 300  # 5 minutes
 LLM_DISABLED_UNTIL = 0.0
 SMTP_NOT_CONFIGURED_MESSAGE = "SMTP 未配置，请设置 SMTP_USER 和 SMTP_PASS 环境变量"
+NEW_USER_DIRECT_QUOTA = 10
+INVITE_REWARD_DIRECT_QUOTA = 10
+HIGH_TIER_SUBMISSION_DIRECT_QUOTA = 3
 
 
 class AuthPayload(BaseModel):
@@ -901,11 +904,13 @@ def preview_participation_reward(scored: dict[str, Any], readiness: dict[str, An
     return {
         "estimated_xp": estimated_xp,
         "source_score_delta": max(0.0, source_delta),
+        "quota_delta": HIGH_TIER_SUBMISSION_DIRECT_QUOTA if tier in {"A", "S"} else 0,
         "exchange_power": exchange_power,
         "exchange_label": exchange_label,
         "next_action": next_action,
         "perks": [
             f"预计 +{estimated_xp} XP",
+            f"直看额度 +{HIGH_TIER_SUBMISSION_DIRECT_QUOTA}" if tier in {"A", "S"} else "直看额度 +0",
             f"信息源分约 +{max(0.0, source_delta):.1f}",
             exchange_label,
         ],
@@ -1352,7 +1357,7 @@ def growth_missions(user: sqlite3.Row) -> list[dict[str, Any]]:
         {
             "key": "invite",
             "title": "邀请一位新成员",
-            "reward": "30 XP + 1 次直看额度",
+            "reward": "30 XP + 10 次直看额度",
             "completed": invite_count >= 1,
             "cta_view": "rank",
         },
@@ -4553,7 +4558,7 @@ def exchange_desk(user: sqlite3.Row, limit: int = 6) -> dict[str, Any]:
         {
             "key": "invite",
             "title": "邀请拿额度",
-            "description": "每邀请 1 位有效新成员，奖励 30 XP 和 1 次直看额度。",
+            "description": "每邀请 1 位有效新成员，奖励 30 XP 和 10 次直看额度。",
             "view": "rank",
             "invite_code": user["invite_code"] if not bool(user["is_guest"]) else "",
         }
@@ -4624,7 +4629,7 @@ def activation_center(user: sqlite3.Row) -> dict[str, Any]:
         {
             "key": "invite",
             "title": "邀请同圈层成员",
-            "description": "每成功邀请 1 人，获得 30 XP、1 次直看额度和源分加成。",
+            "description": "每成功邀请 1 人，获得 30 XP、10 次直看额度和源分加成。",
             "view": "rank",
             "completed": int(user["invite_count"] or 0) > 0,
         },
@@ -4676,9 +4681,9 @@ def activation_center(user: sqlite3.Row) -> dict[str, Any]:
             "total_steps": len(next_steps),
         },
         "starter_rewards": [
-            {"label": "无邀请码注册", "value": "1 次直看额度 + 永久成长记录"},
-            {"label": "邀请码注册", "value": "20 XP + 2 次直看额度"},
-            {"label": "邀请别人", "value": "每人 30 XP + 1 次直看额度"},
+            {"label": "无邀请码注册", "value": "10 次直看额度 + 永久成长记录"},
+            {"label": "邀请码注册", "value": "20 XP + 10 次直看额度"},
+            {"label": "邀请别人", "value": "每人 30 XP + 10 次直看额度"},
         ],
         "starter_watchlist": {
             "headline": "一键建立个人信号流",
@@ -4700,7 +4705,7 @@ def activation_center(user: sqlite3.Row) -> dict[str, Any]:
 
 def referral_center(user: sqlite3.Row) -> dict[str, Any]:
     milestones = [
-        {"target": 1, "title": "首位同圈层成员", "reward": "30 XP + 1 次直看额度"},
+        {"target": 1, "title": "首位同圈层成员", "reward": "30 XP + 10 次直看额度"},
         {"target": 3, "title": "小组信息源", "reward": "额外源分加成，交换池优先"},
         {"target": 5, "title": "核心传播者", "reward": "解锁更多 A 级直看机会"},
         {"target": 10, "title": "社区共建席位", "reward": "王牌信息源冲刺加速"},
@@ -4746,7 +4751,7 @@ def referral_center(user: sqlite3.Row) -> dict[str, Any]:
             "target": "拿到专属邀请码",
             "progress": 0,
             "next_needed": 1,
-            "reward": "20 XP + 2 次直看额度",
+            "reward": "20 XP + 10 次直看额度",
             "share_copy": "我在股情报看 A 股情报价值评分和信息源等级，注册后可以投稿交换高价值线索。",
             "action": {"key": "register", "label": "注册拿邀请码", "view": "register"},
         }
@@ -4760,7 +4765,7 @@ def referral_center(user: sqlite3.Row) -> dict[str, Any]:
             "progress": progress,
             "next_needed": needed,
             "reward": next_milestone["reward"],
-            "share_copy": "我在股情报跟踪 A 股小道消息的评分、回测和信息源等级，你用我的邀请码注册可得 20 XP 和 2 次直看额度。",
+            "share_copy": "我在股情报跟踪 A 股小道消息的评分、回测和信息源等级，你用我的邀请码注册可得 20 XP 和 10 次直看额度。",
             "action": {"key": "copy_invite", "label": "复制邀请链接", "view": "rank"},
         }
     else:
@@ -4796,8 +4801,8 @@ def referral_center(user: sqlite3.Row) -> dict[str, Any]:
             "next_needed": max(0, (next_milestone["target"] if next_milestone else invite_count) - invite_count),
         },
         "rewards": {
-            "invitee": "通过邀请注册：20 XP + 2 次直看额度",
-            "inviter": "每成功邀请：30 XP + 1 次直看额度 + 信息源分加成",
+            "invitee": "通过邀请注册：20 XP + 10 次直看额度",
+            "inviter": "每成功邀请：30 XP + 10 次直看额度 + 信息源分加成",
         },
         "invite_plan": invite_plan,
         "momentum": projected,
@@ -4919,12 +4924,12 @@ def invite_preview(code: str) -> dict[str, Any]:
             "valid": False,
             "invite_code": normalized,
             "message": "邀请码无效或已失效",
-            "invitee_reward": "使用有效邀请码注册可获得 20 XP + 2 次直看额度",
-            "inviter_reward": "邀请人可获得 30 XP + 1 次直看额度",
+            "invitee_reward": "使用有效邀请码注册可获得 20 XP + 10 次直看额度",
+            "inviter_reward": "邀请人可获得 30 XP + 10 次直看额度",
             "landing_value": {
                 "headline": "使用有效邀请码可获得启动权益",
                 "proof_points": [
-                    {"label": "注册奖励", "value": "20 XP + 2直看"},
+                    {"label": "注册奖励", "value": "20 XP + 10直看"},
                     {"label": "成长记录", "value": "永久保留"},
                     {"label": "激活路径", "value": "自选/解锁/投稿"},
                 ],
@@ -4941,7 +4946,7 @@ def invite_preview(code: str) -> dict[str, Any]:
     landing_value = {
         "headline": "带奖励进入社区，先建立你的个人情报账户",
         "proof_points": [
-            {"label": "注册奖励", "value": "20 XP + 2直看"},
+            {"label": "注册奖励", "value": "20 XP + 10直看"},
             {"label": "邀请人源分", "value": f"{float(grade.get('score') or 0):.1f}"},
             {"label": "源等级", "value": grade.get("name") or "信息源"},
         ],
@@ -4957,8 +4962,8 @@ def invite_preview(code: str) -> dict[str, Any]:
         "invite_code": normalized,
         "inviter": snapshot,
         "message": f"{inviter['display_name']} 邀请你加入股情报",
-        "invitee_reward": "20 XP + 2 次直看额度 + 永久成长记录",
-        "inviter_reward": "邀请人获得 30 XP + 1 次直看额度 + 源分加成",
+        "invitee_reward": "20 XP + 10 次直看额度 + 永久成长记录",
+        "inviter_reward": "邀请人获得 30 XP + 10 次直看额度 + 源分加成",
         "activation_steps": ["注册账号", "建立自选信号流", "解锁或贡献第一条情报"],
         "landing_value": landing_value,
         "rights_fingerprint": hashlib.sha256(f"invite:{normalized}:{hidden_copyright_mark()}".encode()).hexdigest()[:16],
@@ -5414,7 +5419,7 @@ def recalc_user_scores() -> None:
         rep = 50 + (sum(perf) / len(perf) * 150 if perf else 0)
         lvl = level_for(xp)
         execute(
-            "update users set xp = ?, reputation = ?, direct_quota = ? where id = ?",
+            "update users set xp = ?, reputation = ?, direct_quota = max(direct_quota, ?) where id = ?",
             (xp, max(1, min(99, rep)), lvl["quota"], user_id),
         )
 
@@ -5551,8 +5556,8 @@ def value_framework(response: Response, agu_session: str | None = Cookie(default
             {"name": "王牌信息源", "rule": "长期高质量、低回撤、高独特性、社区验证正反馈，S 级内容和邀请权益优先"},
         ],
         "invite_rewards": {
-            "new_user": "通过邀请码注册获得 20 XP 和 2 次直看额度",
-            "inviter": "每成功邀请 1 人获得 30 XP、1 次直看额度、邀请计数",
+            "new_user": "通过邀请码注册获得 20 XP 和 10 次直看额度",
+            "inviter": "每成功邀请 1 人获得 30 XP、10 次直看额度、邀请计数",
         },
         "value_verdict": {
             "name": "社区价值指数",
@@ -5832,7 +5837,7 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
         inviter = inviter_rows[0]
     salt, digest = hash_password(payload.password)
     starter_xp = 20 if inviter else 0
-    starter_quota = 2 if inviter else 1
+    starter_quota = NEW_USER_DIRECT_QUOTA
     execute(
         """
         insert into users(username, display_name, email, password_salt, password_hash, is_guest,
@@ -5845,12 +5850,12 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
     execute("update users set invite_code = ? where id = ?", (make_invite_code(user["username"], user["id"]), user["id"]))
     if inviter:
         execute(
-            "insert or ignore into referral_events(inviter_id, invitee_id, reward_xp, reward_quota, created_at) values (?, ?, 30, 1, ?)",
-            (inviter["id"], user["id"], now_iso()),
+            "insert or ignore into referral_events(inviter_id, invitee_id, reward_xp, reward_quota, created_at) values (?, ?, 30, ?, ?)",
+            (inviter["id"], user["id"], INVITE_REWARD_DIRECT_QUOTA, now_iso()),
         )
         execute(
-            "update users set xp = xp + 30, direct_quota = direct_quota + 1, invite_count = invite_count + 1 where id = ?",
-            (inviter["id"],),
+            "update users set xp = xp + 30, direct_quota = direct_quota + ?, invite_count = invite_count + 1 where id = ?",
+            (INVITE_REWARD_DIRECT_QUOTA, inviter["id"]),
         )
         inviter_level = level_for(inviter["xp"] + 30)
         execute("update users set direct_quota = max(direct_quota, ?) where id = ?", (inviter_level["quota"], inviter["id"]))
@@ -6364,9 +6369,14 @@ def submit_rumor(payload: RumorPayload, response: Response, agu_session: str | N
     refresh_backtests(limit=20)
     recalc_user_scores()
     refreshed_user = query("select * from users where id = ?", (user["id"],))[0]
+    quota_delta = HIGH_TIER_SUBMISSION_DIRECT_QUOTA if scored["tier"] in {"A", "S"} else 0
+    if quota_delta:
+        execute("update users set direct_quota = direct_quota + ? where id = ?", (quota_delta, user["id"]))
+        refreshed_user = query("select * from users where id = ?", (user["id"],))[0]
     after_user = user_out(refreshed_user)
     submission_reward = {
         "xp_delta": int(after_user["xp"] or 0) - int(before_user["xp"] or 0),
+        "quota_delta": quota_delta,
         "contribution_delta": round(float(after_user["contribution"] or 0) - float(before_user["contribution"] or 0), 1),
         "source_score_delta": round(float(after_user["provider_grade"]["score"] or 0) - float(before_user["provider_grade"]["score"] or 0), 1),
         "level": level_for(refreshed_user["xp"]),
