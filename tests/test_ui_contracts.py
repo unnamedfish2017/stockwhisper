@@ -137,9 +137,32 @@ def test_detail_watch_buttons_have_container_and_render_call():
     js = app_js()
 
     assert 'id="detailWatchTargets"' in html
+    assert 'id="detailWatchPrimary"' in html
+    assert "function renderPrimaryDetailWatch" in js
+    assert "renderPrimaryDetailWatch(item.stock_codes || [], item.watched)" in js
     assert "function renderWatchTargets" in js
     assert "renderWatchTargets(item.stock_codes || [], item.watched)" in js
     assert '("#detailWatchTargets")?.addEventListener("click"' in js
+    assert '("#detailWatchPrimary")?.addEventListener("click"' in js
+
+
+def test_detail_watch_and_unlock_success_feedback_are_wired():
+    js = app_js()
+    css = styles_css()
+
+    assert "function showToast(message)" in js
+    assert 'document.querySelector("dialog[open]") || document.body' in js
+    assert 'host.querySelector(".app-toast")' in js
+    assert "function setWatchButtonsForCode(code, watched)" in js
+    assert 'class="detail-watch-main detail-watch-btn' in js
+    assert '<span>${watched ? "-" : "+"}</span>' in js
+    assert '<span>${watched ? "-" : "+"}</span>${esc(item.name || item.code)}' in js
+    assert 'showToast(opts.message || "已加入自选股")' in js
+    assert 'showToast(opts.message || "已移出自选股")' in js
+    assert 'showToast("解锁成功")' in js
+    assert re.search(r"async function unlockRumor[\s\S]+await openRumor\(id\);[\s\S]+showToast\(\"解锁成功\"\);", js)
+    assert re.search(r"\.app-toast\s*\{[\s\S]*position:\s*fixed;", css)
+    assert re.search(r"\.app-toast\.show\s*\{[\s\S]*opacity:\s*1;", css)
 
 
 def test_watchlist_buttons_toggle_between_add_and_remove():

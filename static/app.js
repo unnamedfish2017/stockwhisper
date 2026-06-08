@@ -552,13 +552,55 @@ function renderWatchSignal(item) {
   `;
 }
 
-async function addWatch(item) {
+function showToast(message) {
+  const host = document.querySelector("dialog[open]") || document.body;
+  let toast = host.querySelector(".app-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.className = "app-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    host.appendChild(toast);
+  }
+  clearTimeout(showToast.timer);
+  toast.textContent = message;
+  toast.classList.add("show");
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+function selectorEscape(value) {
+  if (window.CSS?.escape) return CSS.escape(value);
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
+function setWatchButtonsForCode(code, watched) {
+  if (!code) return;
+  const action = watched ? "remove" : "add";
+  const title = watched ? "移出自选股" : "加入自选股";
+  $$(`[data-code="${selectorEscape(code)}"][data-watch-action]`).forEach((btn) => {
+    btn.dataset.watchAction = action;
+    btn.title = title;
+    btn.classList.toggle("active-filter", watched);
+    if (btn.classList.contains("detail-watch-main")) {
+      btn.innerHTML = `<span>${watched ? "-" : "+"}</span>`;
+    } else if (btn.classList.contains("detail-watch-btn")) {
+      const name = btn.dataset.name || code;
+      btn.innerHTML = `<span>${watched ? "-" : "+"}</span>${esc(name)}`;
+    } else {
+      btn.textContent = watched ? "-" : "+";
+    }
+  });
+}
+
+async function addWatch(item, opts = {}) {
   if (!isLoggedIn()) {
     promptLogin("登录后才能添加自选股。");
     return;
   }
   try {
     await api("/api/watchlist", { method: "POST", body: JSON.stringify(item) });
+    setWatchButtonsForCode(item.code, true);
+    showToast(opts.message || "已加入自选股");
     if (state.view === "watch") await loadWatchPage();
     await loadCommunityInsight();
     await loadRumors(true);
@@ -577,13 +619,15 @@ async function toggleWatchFromButton(btn) {
   await addWatch({ code, name });
 }
 
-async function removeWatch(code) {
+async function removeWatch(code, opts = {}) {
   if (!isLoggedIn()) {
     promptLogin("登录后才能管理自选股。");
     return;
   }
   try {
     await api(`/api/watchlist/${encodeURIComponent(code)}`, { method: "DELETE" });
+    setWatchButtonsForCode(code, false);
+    showToast(opts.message || "已移出自选股");
     if (state.view === "watch") await loadWatchPage();
     await loadCommunityInsight();
     await loadRumors(true);
@@ -1189,6 +1233,7 @@ async function openRumor(id) {
   $("#detailMeta").innerHTML = "";
   $("#detailBacktest").innerHTML = "";
   $("#detailLogic").textContent = "";
+  $("#detailWatchPrimary").innerHTML = "";
   $("#detailWatchTargets").innerHTML = "";
   $("#detailPoints").innerHTML = "";
   try {
@@ -1215,6 +1260,7 @@ async function openRumor(id) {
       <small>${esc(bt.outcome?.summary || "")}</small>
     ` : "";
     $("#detailLogic").textContent = item.logic || "";
+    renderPrimaryDetailWatch(item.stock_codes || [], item.watched);
     renderWatchTargets(item.stock_codes || [], item.watched);
     $("#detailPoints").innerHTML = (item.key_points || []).map((p) => `<span>${esc(p)}</span>`).join("");
     renderDetailDiscussion(item.discussion || {}, data.comments || []);
@@ -1399,10 +1445,29 @@ function renderWatchTargets(stocks, watched) {
   if (!target) return;
   const usable = (stocks || []).filter((item) => item.code);
   target.innerHTML = usable.map((item) => `
-    <button type="button" class="ghost detail-watch-btn ${watched ? "active-filter" : ""}" data-watch-action="${watched ? "remove" : "add"}" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}">
-      ${watched ? "移出自选" : "关注"} ${esc(item.name || item.code)}
+    <button type="button" class="ghost detail-watch-btn ${watched ? "active-filter" : ""}" data-watch-action="${watched ? "remove" : "add"}" data-code="${esc(item.code)}" data-name="${esc(item.name || item.code)}" title="${watched ? "移出自选股" : "加入自选股"}">
+      <span>${watched ? "-" : "+"}</span>${esc(item.name || item.code)}
     </button>
   `).join("");
+}
+
+function renderPrimaryDetailWatch(stocks, watched) {
+  const target = $("#detailWatchPrimary");
+  if (!target) return;
+  const stock = (stocks || []).find((item) => item.code);
+  if (!stock) {
+    target.innerHTML = `
+      <button type="button" class="detail-watch-main" disabled title="该信号未识别到股票代码，暂不能加入自选股">
+        <span>+</span>
+      </button>
+    `;
+    return;
+  }
+  target.innerHTML = `
+    <button type="button" class="detail-watch-main detail-watch-btn ${watched ? "active-filter" : ""}" data-watch-action="${watched ? "remove" : "add"}" data-code="${esc(stock.code)}" data-name="${esc(stock.name || stock.code)}" title="${watched ? "移出自选股" : "加入自选股"}">
+      <span>${watched ? "-" : "+"}</span>
+    </button>
+  `;
 }
 
 function renderDetailDiscussion(discussion, comments) {
@@ -1645,6 +1710,8 @@ async function unlockRumor(id) {
     await loadExchangeDesk();
     await loadModerationSummary();
     await loadRumors();
+    await openRumor(id);
+    showToast("解锁成功");
   } catch (err) {
     alert(err.message);
   }
@@ -2337,6 +2404,10 @@ function wire() {
     if (btn) reactToActiveRumor(btn.dataset.reaction);
   });
   $("#detailWatchTargets")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".detail-watch-btn");
+    if (btn) toggleWatchFromButton(btn);
+  });
+  $("#detailWatchPrimary")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".detail-watch-btn");
     if (btn) toggleWatchFromButton(btn);
   });

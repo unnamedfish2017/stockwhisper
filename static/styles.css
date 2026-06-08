@@ -3924,6 +3924,11 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.36); backdrop-filter: blur(2px
 #rumorDialog, #providerDialog {
   width: min(920px, calc(100vw - 28px));
 }
+#rumorDialog .app-toast,
+#providerDialog .app-toast,
+#authDialog .app-toast {
+  z-index: 10;
+}
 .rumor-detail, .provider-detail {
   padding: 0;
   background: #fff;
@@ -3937,6 +3942,40 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.36); backdrop-filter: blur(2px
   border-bottom: 1px solid var(--line);
 }
 .rumor-detail header h3, .provider-detail header h3 { margin-top: 8px; font-size: 24px; }
+.detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detail-watch-primary {
+  min-width: 38px;
+}
+.detail-watch-main {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.detail-watch-main.active-filter {
+  background: var(--accent-soft);
+  border-color: #8ecfb6;
+}
+.detail-watch-main:disabled {
+  color: var(--muted);
+  background: #f6f7f9;
+  cursor: not-allowed;
+}
+.detail-watch-main span {
+  transform: translateY(-1px);
+}
 .detail-meta, .detail-points, .detail-watch-targets, .detail-backtest {
   display: flex;
   flex-wrap: wrap;
@@ -3954,6 +3993,19 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.36); backdrop-filter: blur(2px
 }
 .detail-watch-targets button {
   height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.detail-watch-targets button span {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-weight: 700;
+  line-height: 1;
 }
 .verification-ledger {
   margin: 16px 18px 0;
@@ -4650,6 +4702,30 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.36); backdrop-filter: blur(2px
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 14px);
+  z-index: 1000;
+  min-width: 160px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid #8ecfb6;
+  border-radius: 8px;
+  background: #f0fbf6;
+  color: #0f5132;
+  box-shadow: var(--shadow-md);
+  font-size: 14px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.app-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 .comment {
   border: 1px solid var(--line);

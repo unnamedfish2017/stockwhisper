@@ -1,8 +1,10 @@
+# 外网访问：[https://stockwhisper.doujie.ccwu.cc/](https://stockwhisper.doujie.ccwu.cc/)
+
 # 股情报 StockWhisper
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-股情报是一个 A 股情报线索社区。用户可以提交机构、产业链、社区流传的股票线索，系统会做结构化提炼、风险烟测、AI/规则评分、分级展示、社区反馈和历史回测。项目是一个小型 FastAPI 后端加静态前端，默认运行在 `8289` 端口。
+股情报是一个面向 A 股线索的共享互助社区：用户分享机构、产业链和社群流传的可验证情报，平台通过结构化提炼、风险烟测、AI/规则评分、分级展示、社区反馈和历史回测，把零散消息沉淀为可复盘的共同情报资产；贡献高质量线索的人也能通过交换、直看额度和信息源成长获得更多高价值内容，实现分享、共享、互惠互利。项目是一个小型 FastAPI 后端加静态前端，默认运行在 `8289` 端口。
 
 > 免责声明：本项目仅用于开源学习和技术交流。所有内容不构成投资建议，不得用于商业用途。投资有风险，入市需谨慎。
 
