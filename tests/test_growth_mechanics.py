@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -268,6 +269,29 @@ def test_invite_registration_rewards_both_users(monkeypatch, tmp_path):
         assert data["milestones"][0]["completed"] is True
         assert data["recent"][0]["invitee_name"] == invited["display_name"]
         assert data["leaderboard"][0]["display_name"] == "alpha"
+
+
+def test_invite_code_accepts_shared_link_or_watermarked_text(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        inviter = register(client, "alpha", "alpha@example.com")
+        invite_url = f"https://stockwhisper.example/?invite={inviter['invite_code']}"
+        shared = f"{invite_url}\n\n--\n来源：股情报 StockWhisper\n版权标记：{main.hidden_copyright_mark()}"
+
+        preview = client.get(f"/api/invite-preview/{quote(invite_url, safe='')}")
+        assert preview.status_code == 200
+        assert preview.json()["valid"] is True
+        assert preview.json()["invite_code"] == inviter["invite_code"]
+
+        invited = register(client, "beta", "beta@example.com", shared)
+        inviter_row = main.query("select xp, direct_quota, invite_count from users where username = 'alpha'")[0]
+        invited_row = main.query("select xp, direct_quota, invited_by from users where username = 'beta'")[0]
+
+        assert invited["xp"] == 20
+        assert invited_row["direct_quota"] == 2
+        assert invited_row["invited_by"] == inviter["id"]
+        assert inviter_row["xp"] == 30
+        assert inviter_row["direct_quota"] == 2
+        assert inviter_row["invite_count"] == 1
 
 
 def test_activation_center_explains_guest_and_registered_value(monkeypatch, tmp_path):

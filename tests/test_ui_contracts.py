@@ -192,10 +192,13 @@ def test_forgot_password_form_is_hidden_and_wired():
 def test_invite_landing_and_copy_flow_are_wired():
     js = app_js()
 
+    assert "function normalizeInviteCode(value)" in js
+    assert 'text.match(/\\bSW[A-Z0-9]{8,22}\\b/)' in js
     assert "function hydrateInviteFromUrl()" in js
     assert 'new URLSearchParams(location.search).get("invite")' in js
-    assert "state.inviteCodeFromUrl = invite.trim().toUpperCase();" in js
+    assert "state.inviteCodeFromUrl = normalizeInviteCode(invite);" in js
     assert '("#regInvite")) $("#regInvite").value = state.inviteCodeFromUrl' in js
+    assert 'const invite_code = normalizeInviteCode($("#regInvite").value);' in js
     assert "function loadInvitePreviewFromUrl()" in js
     assert "loadInvitePreviewFromUrl();" in js
     assert "/api/invite-preview/" in js

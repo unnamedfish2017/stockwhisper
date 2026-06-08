@@ -68,6 +68,12 @@ function apiErrorMessage(detail) {
   return detail.msg || detail.message || JSON.stringify(detail);
 }
 
+function normalizeInviteCode(value) {
+  const text = String(value || "").trim().toUpperCase();
+  const match = text.match(/\bSW[A-Z0-9]{8,22}\b/);
+  return match ? match[0].slice(0, 24) : "";
+}
+
 function pct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "-";
   const n = Number(v) * 100;
@@ -820,7 +826,7 @@ function renderInviteLanding() {
   `;
   $("#acceptInviteBtn")?.addEventListener("click", () => {
     setRegMode("reg");
-    if ($("#regInvite")) $("#regInvite").value = data.invite_code || state.inviteCodeFromUrl;
+    if ($("#regInvite")) $("#regInvite").value = normalizeInviteCode(data.invite_code || state.inviteCodeFromUrl);
     $("#authDialog").showModal();
   });
   $("#inviteDismissBtn")?.addEventListener("click", () => {
@@ -2175,7 +2181,7 @@ async function doRegister() {
   const confirm  = $("#regPassConfirm").value;
   const code     = $("#regCode").value.trim();
   const email    = $("#regEmail").value.trim();
-  const invite_code = $("#regInvite").value.trim();
+  const invite_code = normalizeInviteCode($("#regInvite").value);
   if (!username)            { $("#authMsg").textContent = "请填写用户名"; return; }
   if (password.length < 6)  { $("#authMsg").textContent = "密码至少6位"; return; }
   if (password !== confirm)  { $("#authMsg").textContent = "两次密码不一致"; return; }
@@ -2210,7 +2216,7 @@ async function refreshIdentitySurfaces() {
 function hydrateInviteFromUrl() {
   const invite = new URLSearchParams(location.search).get("invite");
   if (!invite) return;
-  state.inviteCodeFromUrl = invite.trim().toUpperCase();
+  state.inviteCodeFromUrl = normalizeInviteCode(invite);
   if ($("#regInvite")) $("#regInvite").value = state.inviteCodeFromUrl;
 }
 

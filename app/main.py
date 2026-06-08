@@ -81,7 +81,7 @@ class RegisterPayload(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     email: str = Field(min_length=4, max_length=120)
     code: str = Field(min_length=6, max_length=6)
-    invite_code: str = Field(default="", max_length=24)
+    invite_code: str = Field(default="", max_length=500)
 
 
 class RumorPayload(BaseModel):
@@ -1632,6 +1632,12 @@ def make_invite_code(username: str, user_id: int | None = None) -> str:
     seed = f"{username}:{user_id or secrets.token_hex(4)}:{hidden_copyright_mark()}"
     digest = hashlib.blake2s(seed.encode(), digest_size=5).hexdigest().upper()
     return f"SW{digest}"
+
+
+def normalize_invite_code(value: str | None) -> str:
+    text = str(value or "").strip().upper()
+    match = re.search(r"\bSW[A-Z0-9]{8,22}\b", text)
+    return match.group(0)[:24] if match else ""
 
 
 def heuristic_summary(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
@@ -4906,7 +4912,7 @@ def community_rooms(user: sqlite3.Row, limit: int = 8) -> dict[str, Any]:
 
 
 def invite_preview(code: str) -> dict[str, Any]:
-    normalized = str(code or "").strip().upper()[:24]
+    normalized = normalize_invite_code(code)
     rows = query("select * from users where invite_code = ? and is_guest = 0", (normalized,))
     if not normalized or not rows:
         return {
@@ -5607,7 +5613,7 @@ def get_referral_center(response: Response, agu_session: str | None = Cookie(def
     return referral_center(user)
 
 
-@app.get("/api/invite-preview/{code}")
+@app.get("/api/invite-preview/{code:path}")
 def get_invite_preview(code: str) -> dict[str, Any]:
     return invite_preview(code)
 
@@ -5817,7 +5823,7 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
         raise HTTPException(429, f"今日注册名额已满（{DAILY_REG_LIMIT} 人），请明日再试，您已在排队中")
     if query("select 1 from users where username = ?", (payload.username,)):
         raise HTTPException(409, "用户名已存在")
-    invite_code = payload.invite_code.strip().upper()
+    invite_code = normalize_invite_code(payload.invite_code)
     inviter = None
     if invite_code:
         inviter_rows = query("select * from users where invite_code = ? and is_guest = 0", (invite_code,))
