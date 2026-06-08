@@ -49,8 +49,23 @@ async function api(path, opts = {}) {
     ...opts,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "请求失败");
+  if (!res.ok) throw new Error(apiErrorMessage(data.detail));
   return data;
+}
+
+function apiErrorMessage(detail) {
+  if (!detail) return "请求失败";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      if (typeof item === "string") return item;
+      const field = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+      const message = item?.msg || item?.message || JSON.stringify(item);
+      return field ? `${field}: ${message}` : message;
+    }).filter(Boolean);
+    return messages.join("；") || "请求失败";
+  }
+  return detail.msg || detail.message || JSON.stringify(detail);
 }
 
 function pct(v) {
@@ -2169,8 +2184,9 @@ async function doRegister() {
   try {
     const data = await api("/api/register", { method: "POST", body: JSON.stringify({ username, password, email, code, invite_code }) });
     state.user = data.user; state.level = data.level;
+    $("#authMsg").textContent = "注册成功";
     $("#authDialog").close(); setRegMode("login");
-    await refreshIdentitySurfaces();
+    refreshIdentitySurfaces().catch((err) => console.warn("身份信息刷新失败", err));
   } catch (err) { $("#authMsg").textContent = err.message; }
 }
 

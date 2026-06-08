@@ -204,6 +204,17 @@ def test_invite_landing_and_copy_flow_are_wired():
     assert "navigator.clipboard.writeText(text)" in js
 
 
+def test_api_errors_and_register_success_are_user_readable():
+    js = app_js()
+
+    assert "function apiErrorMessage(detail)" in js
+    assert "Array.isArray(detail)" in js
+    assert "JSON.stringify(detail)" in js
+    assert "throw new Error(apiErrorMessage(data.detail));" in js
+    assert '$("#authMsg").textContent = "注册成功";' in js
+    assert 'refreshIdentitySurfaces().catch((err) => console.warn("身份信息刷新失败", err));' in js
+
+
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         old_id = seed_rumor(target="远期搜索股份", code="600123.sh", date="2026-05-20")
