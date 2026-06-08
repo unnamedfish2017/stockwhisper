@@ -2013,20 +2013,25 @@ let regEmail = "";
 function refreshAuthIncentiveIfOpen() {
   const dialog = $("#authDialog");
   if (!dialog?.open) return;
-  renderAuthIncentive($("#regForm")?.style.display === "none" ? "login" : "reg");
+  const step = $("#forgotForm")?.style.display !== "none" ? "forgot" : ($("#regForm")?.style.display === "none" ? "login" : "reg");
+  renderAuthIncentive(step);
 }
 
 function setRegMode(step) {
   const isLogin = step === "login";
   const isReg   = step === "reg";
-  $("#authTitle").textContent = isLogin ? "登录" : "注册";
+  const isForgot = step === "forgot";
+  $("#authTitle").textContent = isForgot ? "找回密码" : (isLogin ? "登录" : "注册");
   renderAuthIncentive(step);
   $("#loginForm").style.display    = isLogin ? "" : "none";
   $("#regForm").style.display      = isReg   ? "" : "none";
+  $("#forgotForm").style.display   = isForgot ? "" : "none";
   $("#loginBtn").style.display     = isLogin ? "" : "none";
   $("#toRegBtn").style.display     = isLogin ? "" : "none";
+  $("#forgotBtn").style.display    = isLogin ? "" : "none";
   $("#doRegisterBtn").style.display = isReg  ? "" : "none";
-  $("#regBackBtn").style.display   = isReg   ? "" : "none";
+  $("#doResetBtn").style.display   = isForgot ? "" : "none";
+  $("#authBackBtn").style.display  = isReg || isForgot ? "" : "none";
   $("#authMsg").textContent = "";
 }
 
@@ -2040,12 +2045,13 @@ function renderAuthIncentive(step = "login") {
   const registeredCopy = invite.valid
     ? `使用邀请码 ${esc(invite.invite_code || "")} 注册，获得 20 XP 和 2 次直看额度。`
     : "注册后获得永久成长记录、1 次直看额度，并可通过投稿/邀请继续解锁。";
-  const headline = step === "reg" ? "注册后把浏览变成可积累的情报账户" : "登录后恢复你的自选、解锁和信息源成长";
+  const isForgot = step === "forgot";
+  const headline = isForgot ? "通过注册邮箱验证后重设密码" : (step === "reg" ? "注册后把浏览变成可积累的情报账户" : "登录后恢复你的自选、解锁和信息源成长");
   root.innerHTML = `
     <div class="auth-incentive-head">
-      <span class="eyebrow">${step === "reg" ? "MEMBER ACCESS" : "ACCOUNT VALUE"}</span>
+      <span class="eyebrow">${isForgot ? "ACCOUNT RECOVERY" : (step === "reg" ? "MEMBER ACCESS" : "ACCOUNT VALUE")}</span>
       <strong>${headline}</strong>
-      <p>${esc(step === "reg" ? registeredCopy : activation.headline || "你的贡献、反馈和邀请都会进入成长账本。")}</p>
+      <p>${esc(isForgot ? "验证码会发送到账号历史绑定邮箱，验证通过后即可设置新密码。" : (step === "reg" ? registeredCopy : activation.headline || "你的贡献、反馈和邀请都会进入成长账本。"))}</p>
     </div>
     <div class="auth-proof-grid">
       <div><span>高价值待解</span><strong>${opportunity.cards?.find?.((item) => item.key === "locked")?.value ?? activation.summary?.locked_high_value ?? 0}</strong></div>
@@ -2085,6 +2091,42 @@ async function sendCode() {
   } catch (err) {
     $("#authMsg").textContent = err.message;
     btn.disabled = false; btn.textContent = "发送验证码";
+  }
+}
+
+async function sendResetCode() {
+  const email = $("#resetEmail").value.trim();
+  if (!email) { $("#authMsg").textContent = "请填写注册邮箱"; return; }
+  const btn = $("#sendResetCodeBtn");
+  btn.disabled = true; btn.textContent = "发送中…";
+  try {
+    const data = await api("/api/password-reset/send-code", { method: "POST", body: JSON.stringify({ email }) });
+    $("#authMsg").textContent = data.delivery === "log"
+      ? "SMTP 未配置，验证码已写入服务日志，5分钟内有效"
+      : `验证码已发至 ${email}，5分钟内有效`;
+    setTimeout(() => { btn.disabled = false; btn.textContent = "重新发送"; }, 60000);
+  } catch (err) {
+    $("#authMsg").textContent = err.message;
+    btn.disabled = false; btn.textContent = "发送验证码";
+  }
+}
+
+async function doResetPassword() {
+  const email = $("#resetEmail").value.trim();
+  const code = $("#resetCode").value.trim();
+  const password = $("#resetPass").value;
+  const confirm = $("#resetPassConfirm").value;
+  if (!email) { $("#authMsg").textContent = "请填写注册邮箱"; return; }
+  if (code.length !== 6) { $("#authMsg").textContent = "请填写6位验证码"; return; }
+  if (password.length < 6) { $("#authMsg").textContent = "密码至少6位"; return; }
+  if (password !== confirm) { $("#authMsg").textContent = "两次密码不一致"; return; }
+  try {
+    await api("/api/password-reset", { method: "POST", body: JSON.stringify({ email, code, password }) });
+    $("#authMsg").textContent = "密码已更新，请使用新密码登录";
+    $("#authPass").value = "";
+    setTimeout(() => setRegMode("login"), 800);
+  } catch (err) {
+    $("#authMsg").textContent = err.message;
   }
 }
 
@@ -2258,10 +2300,13 @@ function wire() {
   // 登录/注册弹窗
   $("#loginOpen").addEventListener("click", () => { setRegMode("login"); $("#authDialog").showModal(); });
   $("#loginBtn").addEventListener("click", () => auth("login"));
+  $("#forgotBtn").addEventListener("click", () => setRegMode("forgot"));
   $("#toRegBtn").addEventListener("click", () => setRegMode("reg"));
   $("#sendCodeBtn").addEventListener("click", sendCode);
+  $("#sendResetCodeBtn").addEventListener("click", sendResetCode);
   $("#doRegisterBtn").addEventListener("click", doRegister);
-  $("#regBackBtn").addEventListener("click", () => setRegMode("login"));
+  $("#doResetBtn").addEventListener("click", doResetPassword);
+  $("#authBackBtn").addEventListener("click", () => setRegMode("login"));
   // 眼睛按钮（事件委托）
   $("#authDialog").addEventListener("click", (e) => {
     const btn = e.target.closest(".eye-btn");

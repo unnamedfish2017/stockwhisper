@@ -89,6 +89,42 @@ def test_registered_email_cannot_register_again(monkeypatch, tmp_path):
     assert len(rows) == 1
 
 
+def test_password_reset_updates_password_and_clears_sessions(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "deliver_email_code", lambda *args, **kwargs: "smtp")
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "alpha", "alpha@example.com")
+        login = client.post("/api/login", json={"username": "alpha", "password": "secret12"})
+        assert login.status_code == 200
+
+        send = client.post("/api/password-reset/send-code", json={"email": "ALPHA@example.com"})
+        rows = main.query("select code from password_reset_verifications where email = ?", ("alpha@example.com",))
+        assert send.status_code == 200, send.text
+        assert send.json() == {"ok": True, "delivery": "smtp"}
+        assert len(rows) == 1
+
+        reset = client.post(
+            "/api/password-reset",
+            json={"email": "alpha@example.com", "code": rows[0]["code"], "password": "newsecret"},
+        )
+        assert reset.status_code == 200, reset.text
+        assert reset.json() == {"ok": True}
+        assert main.query("select 1 from password_reset_verifications where email = ?", ("alpha@example.com",)) == []
+        assert main.query("select 1 from sessions") == []
+
+        old_login = client.post("/api/login", json={"username": "alpha", "password": "secret12"})
+        assert old_login.status_code == 401
+        new_login = client.post("/api/login", json={"username": "alpha", "password": "newsecret"})
+        assert new_login.status_code == 200
+
+
+def test_password_reset_rejects_unregistered_email(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        res = client.post("/api/password-reset/send-code", json={"email": "missing@example.com"})
+
+    assert res.status_code == 404
+    assert res.json()["detail"] == "该邮箱未注册"
+
+
 def seed_rumor(
     submitter_id: Optional[int] = None,
     tier: str = "C",

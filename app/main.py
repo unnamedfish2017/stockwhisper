@@ -62,6 +62,16 @@ class SendCodePayload(BaseModel):
     email: str = Field(min_length=4, max_length=120)
 
 
+class PasswordResetSendPayload(BaseModel):
+    email: str = Field(min_length=4, max_length=120)
+
+
+class PasswordResetPayload(BaseModel):
+    email: str = Field(min_length=4, max_length=120)
+    code: str = Field(min_length=6, max_length=6)
+    password: str = Field(min_length=6, max_length=128)
+
+
 class RegisterPayload(BaseModel):
     username: str = Field(min_length=2, max_length=32)
     password: str = Field(min_length=6, max_length=128)
@@ -185,7 +195,7 @@ def verify_password(password: str, salt: str, digest: str) -> bool:
     return hmac.compare_digest(trial, digest)
 
 
-def send_verification_email(email: str, code: str) -> None:
+def send_verification_email(email: str, code: str, subject: str = "股情报 注册验证码", body: str | None = None) -> None:
     host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER", "")
@@ -194,10 +204,10 @@ def send_verification_email(email: str, code: str) -> None:
     if not user or not password:
         raise RuntimeError(SMTP_NOT_CONFIGURED_MESSAGE)
     msg = EmailMessage()
-    msg["Subject"] = "股情报 注册验证码"
+    msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = email
-    msg.set_content(f"您的验证码是：{code}\n5 分钟内有效，请勿泄露。")
+    msg.set_content(body or f"您的验证码是：{code}\n5 分钟内有效，请勿泄露。")
     if port == 465:
         with smtplib.SMTP_SSL(host, port) as s:
             s.login(user, password)
@@ -220,6 +230,17 @@ def can_fallback_to_logged_email_code(exc: Exception) -> bool:
             "timed out",
         )
     )
+
+
+def deliver_email_code(email: str, code: str, subject: str, body: str) -> str:
+    try:
+        send_verification_email(email, code, subject=subject, body=body)
+        return "smtp"
+    except Exception as exc:
+        print(f"[send-code] {email} => {code}", file=sys.stderr, flush=True)
+        if not can_fallback_to_logged_email_code(exc):
+            raise HTTPException(500, f"邮件发送失败：{exc}") from exc
+        return "log"
 
 
 def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
@@ -1811,6 +1832,12 @@ def init_db() -> None:
             details text not null
         );
         create table if not exists email_verifications (
+            email text not null,
+            code text not null,
+            expires_at integer not null,
+            primary key (email)
+        );
+        create table if not exists password_reset_verifications (
             email text not null,
             code text not null,
             expires_at integer not null,
@@ -5677,19 +5704,61 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
         "insert or replace into email_verifications(email, code, expires_at) values (?, ?, ?)",
         (email, code, expires),
     )
-    delivery = "smtp"
-    try:
-        send_verification_email(email, code)
-    except Exception as exc:
-        import sys
-        print(f"[send-code] {email} => {code}", file=sys.stderr, flush=True)
-        if not can_fallback_to_logged_email_code(exc):
-            raise HTTPException(500, f"邮件发送失败：{exc}") from exc
-        delivery = "log"
+    delivery = deliver_email_code(
+        email,
+        code,
+        "股情报 注册验证码",
+        f"您的注册验证码是：{code}\n5 分钟内有效，请勿泄露。",
+    )
     return {"ok": True, "delivery": delivery}
 
 
 DAILY_REG_LIMIT = 100
+
+
+@app.post("/api/password-reset/send-code")
+def send_password_reset_code(payload: PasswordResetSendPayload) -> dict[str, Any]:
+    email = payload.email.strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(422, "邮箱格式不正确")
+    if not query("select 1 from users where lower(email) = ? and is_guest = 0", (email,)):
+        raise HTTPException(404, "该邮箱未注册")
+    code = f"{random.randint(0, 999999):06d}"
+    expires = int(time.time()) + EMAIL_CODE_TTL
+    execute(
+        "insert or replace into password_reset_verifications(email, code, expires_at) values (?, ?, ?)",
+        (email, code, expires),
+    )
+    delivery = deliver_email_code(
+        email,
+        code,
+        "股情报 密码重置验证码",
+        f"您的密码重置验证码是：{code}\n5 分钟内有效。如非本人操作，请忽略本邮件。",
+    )
+    return {"ok": True, "delivery": delivery}
+
+
+@app.post("/api/password-reset")
+def reset_password(payload: PasswordResetPayload) -> dict[str, Any]:
+    email = payload.email.strip().lower()
+    rows = query(
+        "select * from password_reset_verifications where email = ? and expires_at > ?",
+        (email, int(time.time())),
+    )
+    if not rows or rows[0]["code"] != payload.code:
+        raise HTTPException(400, "验证码错误或已过期")
+    users = query("select * from users where lower(email) = ? and is_guest = 0", (email,))
+    if not users:
+        execute("delete from password_reset_verifications where email = ?", (email,))
+        raise HTTPException(404, "该邮箱未注册")
+    salt, digest = hash_password(payload.password)
+    execute(
+        "update users set password_salt = ?, password_hash = ? where id = ?",
+        (salt, digest, users[0]["id"]),
+    )
+    execute("delete from sessions where user_id = ?", (users[0]["id"],))
+    execute("delete from password_reset_verifications where email = ?", (email,))
+    return {"ok": True}
 
 
 @app.post("/api/register")

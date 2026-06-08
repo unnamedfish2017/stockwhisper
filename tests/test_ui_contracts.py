@@ -166,6 +166,21 @@ def test_watchlist_updates_refresh_recent_signals_and_use_auto_height():
     assert re.search(r"\.watch-signal p\s*\{[\s\S]*overflow-wrap:\s*anywhere;", css)
 
 
+def test_forgot_password_form_is_hidden_and_wired():
+    html = html_text()
+    js = app_js()
+
+    assert 'id="forgotForm" style="display:none"' in html
+    assert 'id="forgotBtn"' in html
+    assert 'id="sendResetCodeBtn"' in html
+    assert 'id="doResetBtn"' in html
+    assert '("#forgotBtn").addEventListener("click", () => setRegMode("forgot"))' in js
+    assert '("#sendResetCodeBtn").addEventListener("click", sendResetCode)' in js
+    assert '("#doResetBtn").addEventListener("click", doResetPassword)' in js
+    assert '"/api/password-reset/send-code"' in js
+    assert '"/api/password-reset"' in js
+
+
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         old_id = seed_rumor(target="远期搜索股份", code="600123.sh", date="2026-05-20")
