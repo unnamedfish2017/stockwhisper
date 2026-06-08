@@ -602,6 +602,22 @@ function renderWatchToggle(stock, watched, extraClass = "") {
   `;
 }
 
+function handleRumorGridClick(e) {
+  const watchBtn = e.target.closest(".watch-add-btn");
+  if (watchBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleWatchFromButton(watchBtn);
+    return;
+  }
+  const pathAction = e.target.closest(".unlock-path-action");
+  if (pathAction) return runUnlockPathAction(pathAction);
+  const open = e.target.closest(".open-btn");
+  if (open) return openRumor(open.dataset.id).catch((err) => alert(err.message || "详情加载失败"));
+  const unlock = e.target.closest(".unlock-btn");
+  if (unlock) return unlockRumor(unlock.dataset.id);
+}
+
 async function setProviderFollow(providerId, follow) {
   try {
     const data = await api(`/api/providers/${providerId}/follow`, { method: follow ? "POST" : "DELETE" });
@@ -2259,14 +2275,7 @@ function wire() {
     invite.textContent = "已复制";
     setTimeout(() => { invite.textContent = originalText; }, 1200);
   });
-  $("#rumorGrid").addEventListener("click", (e) => {
-    const pathAction = e.target.closest(".unlock-path-action");
-    if (pathAction) return runUnlockPathAction(pathAction);
-    const open = e.target.closest(".open-btn");
-    if (open) return openRumor(open.dataset.id).catch((err) => alert(err.message || "详情加载失败"));
-    const unlock = e.target.closest(".unlock-btn");
-    if (unlock) return unlockRumor(unlock.dataset.id);
-  });
+  $("#rumorGrid").addEventListener("click", handleRumorGridClick);
   $("#leaderboard").addEventListener("click", (e) => {
     const btn = e.target.closest(".provider-open");
     if (btn) openProviderProfile(btn.dataset.id);
@@ -2289,14 +2298,6 @@ function wire() {
   $("#tierFilter").addEventListener("change", () => { state.selectedTier = $("#tierFilter").value; runSearch(); });
   $("#refreshFeed").addEventListener("click", async () => { await loadCommunityInsight(); await loadDailyStats(); });
   $("#refreshWatch")?.addEventListener("click", loadWatchPage);
-  $("#rumorGrid").addEventListener("click", (e) => {
-    const btn = e.target.closest(".watch-add-btn");
-    if (btn) {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleWatchFromButton(btn);
-    }
-  });
   $("#submitForm").addEventListener("submit", submitRumor);
   $("#submitResult").addEventListener("click", (e) => {
     if (e.target.closest(".submit-register-now")) {

@@ -36,6 +36,7 @@ LLM_PROVIDER_PATH = ROOT.parent / "llm_provider"
 END_DATE = pd.Timestamp(datetime.now(timezone.utc).date())
 SESSION_SECONDS = 60 * 60 * 24 * 30
 CONTRIBUTION_HALF_LIFE_DAYS = 30
+TIER_SCORE_THRESHOLDS = (("S", 86), ("A", 72), ("B", 55))
 TIER_RULES = {
     "C": {"label": "C级", "free": True, "min_xp": 0, "min_contribution": 0, "hint": "免费查看"},
     "B": {"label": "B级", "free": False, "min_xp": 80, "min_contribution": 35, "hint": "L2 或贡献度 35"},
@@ -320,7 +321,7 @@ def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
     freshness = 10 if value("recommendation_date") else 0
     raw = 25 + specificity + evidence + freshness
     score = max(1, min(100, raw))
-    tier = "S" if score >= 86 else "A" if score >= 72 else "B" if score >= 55 else "C"
+    tier = tier_for_score(score)
     reasons = []
     if tickers:
         reasons.append("标的明确")
@@ -342,7 +343,7 @@ def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
 
 def tier_for_score(score: int | float) -> str:
     score = int(score)
-    return "S" if score >= 86 else "A" if score >= 72 else "B" if score >= 55 else "C"
+    return next((tier for tier, min_score in TIER_SCORE_THRESHOLDS if score >= min_score), "C")
 
 
 def parse_reason_payload(raw: Any) -> dict[str, Any]:
@@ -481,7 +482,7 @@ def apply_risk_to_score(scored: dict[str, Any], risk: dict[str, Any]) -> dict[st
     adjusted = dict(scored)
     adjusted_score = max(1, min(100, int(scored["score"]) - penalty))
     adjusted["score"] = adjusted_score
-    adjusted["tier"] = "S" if adjusted_score >= 86 else "A" if adjusted_score >= 72 else "B" if adjusted_score >= 55 else "C"
+    adjusted["tier"] = tier_for_score(adjusted_score)
     adjusted["dimensions"] = dict(scored.get("dimensions") or {})
     adjusted["reasons"] = list(scored.get("reasons") or [])
     adjusted["reasons"].append(f"风控提示：{risk.get('label', '需核验话术')}")
@@ -847,7 +848,7 @@ def apply_novelty_to_score(scored: dict[str, Any], novelty: dict[str, Any]) -> d
     penalty = int(novelty.get("penalty") or 0)
     adjusted_score = max(1, min(100, int(scored["score"]) - penalty))
     adjusted["score"] = adjusted_score
-    adjusted["tier"] = "S" if adjusted_score >= 86 else "A" if adjusted_score >= 72 else "B" if adjusted_score >= 55 else "C"
+    adjusted["tier"] = tier_for_score(adjusted_score)
     adjusted["dimensions"] = {**(scored.get("dimensions") or {}), "novelty": int(novelty.get("score") or 0)}
     adjusted["reasons"] = list(scored.get("reasons") or [])
     if penalty >= 8:

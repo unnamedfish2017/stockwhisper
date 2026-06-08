@@ -4,6 +4,8 @@ data/*.db.bak_*
 data/*.db-shm
 data/*.db-wal
 data/stock_lookup.json
+data/*.log
+data/*.pid
 
 # 私有种子数据
 ../私有信息/

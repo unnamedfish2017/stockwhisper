@@ -44,6 +44,15 @@ def register(client: TestClient, username: str, email: str, invite_code: str = "
     return res.json()["user"]
 
 
+def test_tier_for_score_uses_shared_thresholds():
+    assert main.tier_for_score(86) == "S"
+    assert main.tier_for_score(85) == "A"
+    assert main.tier_for_score(72) == "A"
+    assert main.tier_for_score(71) == "B"
+    assert main.tier_for_score(55) == "B"
+    assert main.tier_for_score(54) == "C"
+
+
 def test_send_code_falls_back_to_log_when_smtp_missing(monkeypatch, tmp_path, capsys):
     monkeypatch.delenv("SMTP_USER", raising=False)
     monkeypatch.delenv("SMTP_PASS", raising=False)
