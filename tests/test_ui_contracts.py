@@ -170,13 +170,19 @@ def test_forgot_password_form_is_hidden_and_wired():
     html = html_text()
     js = app_js()
 
+    assert 'placeholder="用户名 / 注册邮箱"' in html
     assert 'id="forgotForm" style="display:none"' in html
     assert 'id="forgotBtn"' in html
     assert 'id="sendResetCodeBtn"' in html
     assert 'id="doResetBtn"' in html
-    assert '("#forgotBtn").addEventListener("click", () => setRegMode("forgot"))' in js
+    forgot_start = html.index('id="forgotForm"')
+    forgot_end = html.index('<div class="dialog-actions">', forgot_start)
+    assert 'id="resetEmail"' not in html[forgot_start:forgot_end]
+    assert '("#forgotBtn").addEventListener("click", startForgotPassword)' in js
     assert '("#sendResetCodeBtn").addEventListener("click", sendResetCode)' in js
     assert '("#doResetBtn").addEventListener("click", doResetPassword)' in js
+    assert "function startForgotPassword()" in js
+    assert "请先在登录框填写注册邮箱" in js
     assert '"/api/password-reset/send-code"' in js
     assert '"/api/password-reset"' in js
 

@@ -2009,6 +2009,7 @@ function renderProviderProof(items, passport = null) {
 
 // ── 登录/注册弹窗 ──────────────────────────────────────────
 let regEmail = "";
+let resetEmail = "";
 
 function refreshAuthIncentiveIfOpen() {
   const dialog = $("#authDialog");
@@ -2032,7 +2033,7 @@ function setRegMode(step) {
   $("#doRegisterBtn").style.display = isReg  ? "" : "none";
   $("#doResetBtn").style.display   = isForgot ? "" : "none";
   $("#authBackBtn").style.display  = isReg || isForgot ? "" : "none";
-  $("#authMsg").textContent = "";
+  $("#authMsg").textContent = isForgot && resetEmail ? `验证码将发送到 ${resetEmail}` : "";
 }
 
 function renderAuthIncentive(step = "login") {
@@ -2046,12 +2047,12 @@ function renderAuthIncentive(step = "login") {
     ? `使用邀请码 ${esc(invite.invite_code || "")} 注册，获得 20 XP 和 2 次直看额度。`
     : "注册后获得永久成长记录、1 次直看额度，并可通过投稿/邀请继续解锁。";
   const isForgot = step === "forgot";
-  const headline = isForgot ? "通过注册邮箱验证后重设密码" : (step === "reg" ? "注册后把浏览变成可积累的情报账户" : "登录后恢复你的自选、解锁和信息源成长");
+  const headline = isForgot ? "用注册邮箱验证码重设密码" : (step === "reg" ? "注册后把浏览变成可积累的情报账户" : "登录后恢复你的自选、解锁和信息源成长");
   root.innerHTML = `
     <div class="auth-incentive-head">
       <span class="eyebrow">${isForgot ? "ACCOUNT RECOVERY" : (step === "reg" ? "MEMBER ACCESS" : "ACCOUNT VALUE")}</span>
       <strong>${headline}</strong>
-      <p>${esc(isForgot ? "验证码会发送到账号历史绑定邮箱，验证通过后即可设置新密码。" : (step === "reg" ? registeredCopy : activation.headline || "你的贡献、反馈和邀请都会进入成长账本。"))}</p>
+      <p>${esc(isForgot ? "不需要用户名；验证码会发送到你刚才填写的注册邮箱。" : (step === "reg" ? registeredCopy : activation.headline || "你的贡献、反馈和邀请都会进入成长账本。"))}</p>
     </div>
     <div class="auth-proof-grid">
       <div><span>高价值待解</span><strong>${opportunity.cards?.find?.((item) => item.key === "locked")?.value ?? activation.summary?.locked_high_value ?? 0}</strong></div>
@@ -2095,8 +2096,8 @@ async function sendCode() {
 }
 
 async function sendResetCode() {
-  const email = $("#resetEmail").value.trim();
-  if (!email) { $("#authMsg").textContent = "请填写注册邮箱"; return; }
+  const email = resetEmail;
+  if (!email) { $("#authMsg").textContent = "请先在登录框填写注册邮箱"; return; }
   const btn = $("#sendResetCodeBtn");
   btn.disabled = true; btn.textContent = "发送中…";
   try {
@@ -2112,11 +2113,11 @@ async function sendResetCode() {
 }
 
 async function doResetPassword() {
-  const email = $("#resetEmail").value.trim();
+  const email = resetEmail;
   const code = $("#resetCode").value.trim();
   const password = $("#resetPass").value;
   const confirm = $("#resetPassConfirm").value;
-  if (!email) { $("#authMsg").textContent = "请填写注册邮箱"; return; }
+  if (!email) { $("#authMsg").textContent = "请先在登录框填写注册邮箱"; return; }
   if (code.length !== 6) { $("#authMsg").textContent = "请填写6位验证码"; return; }
   if (password.length < 6) { $("#authMsg").textContent = "密码至少6位"; return; }
   if (password !== confirm) { $("#authMsg").textContent = "两次密码不一致"; return; }
@@ -2128,6 +2129,18 @@ async function doResetPassword() {
   } catch (err) {
     $("#authMsg").textContent = err.message;
   }
+}
+
+async function startForgotPassword() {
+  const email = $("#authUser").value.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    $("#authMsg").textContent = "请先在登录框填写注册邮箱";
+    $("#authUser").focus();
+    return;
+  }
+  resetEmail = email;
+  setRegMode("forgot");
+  await sendResetCode();
 }
 
 async function doRegister() {
@@ -2300,7 +2313,7 @@ function wire() {
   // 登录/注册弹窗
   $("#loginOpen").addEventListener("click", () => { setRegMode("login"); $("#authDialog").showModal(); });
   $("#loginBtn").addEventListener("click", () => auth("login"));
-  $("#forgotBtn").addEventListener("click", () => setRegMode("forgot"));
+  $("#forgotBtn").addEventListener("click", startForgotPassword);
   $("#toRegBtn").addEventListener("click", () => setRegMode("reg"));
   $("#sendCodeBtn").addEventListener("click", sendCode);
   $("#sendResetCodeBtn").addEventListener("click", sendResetCode);

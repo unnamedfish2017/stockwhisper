@@ -54,7 +54,7 @@ SMTP_NOT_CONFIGURED_MESSAGE = "SMTP 未配置，请设置 SMTP_USER 和 SMTP_PAS
 
 
 class AuthPayload(BaseModel):
-    username: str = Field(min_length=2, max_length=32)
+    username: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=4, max_length=128)
 
 
@@ -5820,7 +5820,11 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
 
 @app.post("/api/login")
 def login(payload: AuthPayload, response: Response) -> dict[str, Any]:
-    rows = query("select * from users where username = ? and is_guest = 0", (payload.username,))
+    login_name = payload.username.strip()
+    rows = query(
+        "select * from users where is_guest = 0 and (username = ? or lower(email) = ?)",
+        (login_name, login_name.lower()),
+    )
     if not rows or not verify_password(payload.password, rows[0]["password_salt"], rows[0]["password_hash"]):
         raise HTTPException(401, "账号或密码错误")
     create_session(rows[0]["id"], response)

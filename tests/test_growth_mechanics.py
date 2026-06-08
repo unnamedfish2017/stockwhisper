@@ -115,6 +115,8 @@ def test_password_reset_updates_password_and_clears_sessions(monkeypatch, tmp_pa
         assert old_login.status_code == 401
         new_login = client.post("/api/login", json={"username": "alpha", "password": "newsecret"})
         assert new_login.status_code == 200
+        email_login = client.post("/api/login", json={"username": "alpha@example.com", "password": "newsecret"})
+        assert email_login.status_code == 200
 
 
 def test_password_reset_rejects_unregistered_email(monkeypatch, tmp_path):
