@@ -11,7 +11,7 @@ A股小道消息情报社区。用户提交机构/个人推荐消息，AI 自动
 ```bash
 pip install -r requirements.txt
 
-# 设置 SMTP（用于邮箱注册验证码）
+# 设置 SMTP（用于邮箱注册验证码；未配置时验证码会打印到服务日志）
 export SMTP_USER=your@gmail.com
 export SMTP_PASS=your_app_password
 
@@ -48,6 +48,7 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8289
 | `SMTP_PORT` | 默认 `587` |
 | `SMTP_USER` | 发件邮箱 |
 | `SMTP_PASS` | 应用专用密码 |
+| `SMTP_FROM` | 发件人地址，默认使用 `SMTP_USER` |
 | `AGUWHISPER_LLM_API_KEY` / `OPENAI_API_KEY` | LLM 摘要（可选） |
 | `AGUWHISPER_LLM_BASE_URL` | 自定义 LLM 接口地址（可选） |
 | `HOST` / `PORT` | 监听地址，默认 `0.0.0.0:8289` |

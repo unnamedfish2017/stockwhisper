@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -40,6 +41,21 @@ def register(client: TestClient, username: str, email: str, invite_code: str = "
     )
     assert res.status_code == 200, res.text
     return res.json()["user"]
+
+
+def test_send_code_falls_back_to_log_when_smtp_missing(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("SMTP_USER", raising=False)
+    monkeypatch.delenv("SMTP_PASS", raising=False)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        res = client.post("/api/send-code", json={"email": "fish@example.com"})
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {"ok": True, "delivery": "log"}
+    assert "[send-code] fish@example.com =>" in capsys.readouterr().err
+    rows = main.query("select code from email_verifications where email = ?", ("fish@example.com",))
+    assert len(rows) == 1
+    assert re.match(r"^\d{6}$", rows[0]["code"])
 
 
 def seed_rumor(

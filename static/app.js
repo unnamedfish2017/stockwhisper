@@ -2076,9 +2076,11 @@ async function sendCode() {
   const btn = $("#sendCodeBtn");
   btn.disabled = true; btn.textContent = "发送中…";
   try {
-    await api("/api/send-code", { method: "POST", body: JSON.stringify({ email }) });
+    const data = await api("/api/send-code", { method: "POST", body: JSON.stringify({ email }) });
     regEmail = email;
-    $("#authMsg").textContent = `验证码已发至 ${email}，5分钟内有效`;
+    $("#authMsg").textContent = data.delivery === "log"
+      ? "SMTP 未配置，验证码已写入服务日志，5分钟内有效"
+      : `验证码已发至 ${email}，5分钟内有效`;
     setTimeout(() => { btn.disabled = false; btn.textContent = "重新发送"; }, 60000);
   } catch (err) {
     $("#authMsg").textContent = err.message;

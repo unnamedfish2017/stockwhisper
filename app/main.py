@@ -50,6 +50,7 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 EMAIL_CODE_TTL = 300  # 5 minutes
 LLM_DISABLED_UNTIL = 0.0
+SMTP_NOT_CONFIGURED_MESSAGE = "SMTP 未配置，请设置 SMTP_USER 和 SMTP_PASS 环境变量"
 
 
 class AuthPayload(BaseModel):
@@ -191,7 +192,7 @@ def send_verification_email(email: str, code: str) -> None:
     password = os.getenv("SMTP_PASS", "")
     sender = os.getenv("SMTP_FROM", user)
     if not user or not password:
-        raise RuntimeError("SMTP 未配置，请设置 SMTP_USER 和 SMTP_PASS 环境变量")
+        raise RuntimeError(SMTP_NOT_CONFIGURED_MESSAGE)
     msg = EmailMessage()
     msg["Subject"] = "股情报 注册验证码"
     msg["From"] = sender
@@ -206,6 +207,19 @@ def send_verification_email(email: str, code: str) -> None:
             s.starttls()
             s.login(user, password)
             s.send_message(msg)
+
+
+def can_fallback_to_logged_email_code(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "smtp 未配置",
+            "unreachable",
+            "connect",
+            "timed out",
+        )
+    )
 
 
 def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
@@ -5654,14 +5668,16 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
         "insert or replace into email_verifications(email, code, expires_at) values (?, ?, ?)",
         (email, code, expires),
     )
+    delivery = "smtp"
     try:
         send_verification_email(email, code)
     except Exception as exc:
         import sys
         print(f"[send-code] {email} => {code}", file=sys.stderr, flush=True)
-        if "unreachable" not in str(exc).lower() and "connect" not in str(exc).lower() and "timed out" not in str(exc).lower():
+        if not can_fallback_to_logged_email_code(exc):
             raise HTTPException(500, f"邮件发送失败：{exc}") from exc
-    return {"ok": True}
+        delivery = "log"
+    return {"ok": True, "delivery": delivery}
 
 
 DAILY_REG_LIMIT = 100
