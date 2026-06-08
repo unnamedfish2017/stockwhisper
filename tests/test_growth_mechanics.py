@@ -58,6 +58,37 @@ def test_send_code_falls_back_to_log_when_smtp_missing(monkeypatch, tmp_path, ca
     assert re.match(r"^\d{6}$", rows[0]["code"])
 
 
+def test_registered_email_cannot_receive_new_code(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "alpha", "alpha@example.com")
+
+        res = client.post("/api/send-code", json={"email": "alpha@example.com"})
+
+    assert res.status_code == 409
+    assert res.json()["detail"] == "该邮箱已注册"
+
+
+def test_registered_email_cannot_register_again(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        register(client, "alpha", "alpha@example.com")
+        add_email_code("alpha@example.com")
+
+        res = client.post(
+            "/api/register",
+            json={
+                "username": "beta",
+                "password": "secret12",
+                "email": "ALPHA@example.com",
+                "code": "123456",
+            },
+        )
+
+    assert res.status_code == 409
+    assert res.json()["detail"] == "该邮箱已注册"
+    rows = main.query("select code from email_verifications where email = ?", ("alpha@example.com",))
+    assert len(rows) == 1
+
+
 def seed_rumor(
     submitter_id: Optional[int] = None,
     tier: str = "C",

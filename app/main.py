@@ -1899,6 +1899,13 @@ def init_db() -> None:
         con.execute("alter table users add column invite_count integer not null default 0")
         con.commit()
     con.execute("create unique index if not exists idx_users_invite_code on users(invite_code)")
+    con.execute(
+        """
+        create unique index if not exists idx_users_registered_email
+        on users(lower(email))
+        where is_guest = 0 and email is not null and email != ''
+        """
+    )
     missing_codes = con.execute("select id, username from users where invite_code is null or invite_code = ''").fetchall()
     for row in missing_codes:
         code = make_invite_code(row["username"], row["id"])
@@ -5662,6 +5669,8 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
     email = payload.email.strip().lower()
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(422, "邮箱格式不正确")
+    if query("select 1 from users where lower(email) = ?", (email,)):
+        raise HTTPException(409, "该邮箱已注册")
     code = f"{random.randint(0, 999999):06d}"
     expires = int(time.time()) + EMAIL_CODE_TTL
     execute(
@@ -5686,6 +5695,8 @@ DAILY_REG_LIMIT = 100
 @app.post("/api/register")
 def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
     email = payload.email.strip().lower()
+    if query("select 1 from users where lower(email) = ?", (email,)):
+        raise HTTPException(409, "该邮箱已注册")
     rows = query(
         "select * from email_verifications where email = ? and expires_at > ?",
         (email, int(time.time())),
@@ -5702,8 +5713,6 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
         raise HTTPException(429, f"今日注册名额已满（{DAILY_REG_LIMIT} 人），请明日再试，您已在排队中")
     if query("select 1 from users where username = ?", (payload.username,)):
         raise HTTPException(409, "用户名已存在")
-    if query("select 1 from users where email = ?", (email,)):
-        raise HTTPException(409, "该邮箱已注册")
     invite_code = payload.invite_code.strip().upper()
     inviter = None
     if invite_code:
