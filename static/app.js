@@ -2351,6 +2351,7 @@ function debounce(fn, wait) {
 
 wire();
 hydrateInviteFromUrl();
+loadInvitePreviewFromUrl();
 installCopyWatermark();
 setDefaultRecommendationDate();
 renderStockRows([]);

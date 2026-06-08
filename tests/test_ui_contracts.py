@@ -189,6 +189,21 @@ def test_forgot_password_form_is_hidden_and_wired():
     assert '"/api/password-reset"' in js
 
 
+def test_invite_landing_and_copy_flow_are_wired():
+    js = app_js()
+
+    assert "function hydrateInviteFromUrl()" in js
+    assert 'new URLSearchParams(location.search).get("invite")' in js
+    assert "state.inviteCodeFromUrl = invite.trim().toUpperCase();" in js
+    assert '("#regInvite")) $("#regInvite").value = state.inviteCodeFromUrl' in js
+    assert "function loadInvitePreviewFromUrl()" in js
+    assert "loadInvitePreviewFromUrl();" in js
+    assert "/api/invite-preview/" in js
+    assert 'id="acceptInviteBtn"' in js
+    assert 'data-invite="${esc(inviteUrl)}"' in js
+    assert "navigator.clipboard.writeText(text)" in js
+
+
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         old_id = seed_rumor(target="远期搜索股份", code="600123.sh", date="2026-05-20")
