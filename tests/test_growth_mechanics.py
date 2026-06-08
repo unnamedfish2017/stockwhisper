@@ -96,15 +96,19 @@ def test_password_reset_updates_password_and_clears_sessions(monkeypatch, tmp_pa
         login = client.post("/api/login", json={"username": "alpha", "password": "secret12"})
         assert login.status_code == 200
 
-        send = client.post("/api/password-reset/send-code", json={"email": "ALPHA@example.com"})
+        lookup = client.post("/api/password-reset/lookup", json={"account": "alpha"})
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json() == {"ok": True, "masked_email": "alp***@ex***e.com"}
+
+        send = client.post("/api/password-reset/send-code", json={"account": "alpha"})
         rows = main.query("select code from password_reset_verifications where email = ?", ("alpha@example.com",))
         assert send.status_code == 200, send.text
-        assert send.json() == {"ok": True, "delivery": "smtp"}
+        assert send.json() == {"ok": True, "delivery": "smtp", "masked_email": "alp***@ex***e.com"}
         assert len(rows) == 1
 
         reset = client.post(
             "/api/password-reset",
-            json={"email": "alpha@example.com", "code": rows[0]["code"], "password": "newsecret"},
+            json={"account": "alpha", "code": rows[0]["code"], "password": "newsecret"},
         )
         assert reset.status_code == 200, reset.text
         assert reset.json() == {"ok": True}
@@ -121,10 +125,10 @@ def test_password_reset_updates_password_and_clears_sessions(monkeypatch, tmp_pa
 
 def test_password_reset_rejects_unregistered_email(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
-        res = client.post("/api/password-reset/send-code", json={"email": "missing@example.com"})
+        res = client.post("/api/password-reset/send-code", json={"account": "missing@example.com"})
 
     assert res.status_code == 404
-    assert res.json()["detail"] == "该邮箱未注册"
+    assert res.json()["detail"] == "账号不存在或未绑定邮箱"
 
 
 def seed_rumor(

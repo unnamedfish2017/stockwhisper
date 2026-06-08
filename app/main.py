@@ -62,12 +62,16 @@ class SendCodePayload(BaseModel):
     email: str = Field(min_length=4, max_length=120)
 
 
+class PasswordResetLookupPayload(BaseModel):
+    account: str = Field(min_length=2, max_length=120)
+
+
 class PasswordResetSendPayload(BaseModel):
-    email: str = Field(min_length=4, max_length=120)
+    account: str = Field(min_length=2, max_length=120)
 
 
 class PasswordResetPayload(BaseModel):
-    email: str = Field(min_length=4, max_length=120)
+    account: str = Field(min_length=2, max_length=120)
     code: str = Field(min_length=6, max_length=6)
     password: str = Field(min_length=6, max_length=128)
 
@@ -241,6 +245,37 @@ def deliver_email_code(email: str, code: str, subject: str, body: str) -> str:
         if not can_fallback_to_logged_email_code(exc):
             raise HTTPException(500, f"邮件发送失败：{exc}") from exc
         return "log"
+
+
+def mask_email(email: str) -> str:
+    local, sep, domain = email.partition("@")
+    if not sep:
+        return "***"
+    if len(local) <= 3:
+        masked_local = f"{local[:1]}***"
+    elif len(local) <= 6:
+        masked_local = f"{local[:3]}***"
+    else:
+        masked_local = f"{local[:3]}***{local[-2:]}"
+    domain_parts = domain.split(".", 1)
+    domain_name = domain_parts[0]
+    domain_suffix = f".{domain_parts[1]}" if len(domain_parts) > 1 else ""
+    if len(domain_name) <= 2:
+        masked_domain = f"{domain_name[:1]}***"
+    else:
+        masked_domain = f"{domain_name[:2]}***{domain_name[-1:]}"
+    return f"{masked_local}@{masked_domain}{domain_suffix}"
+
+
+def password_reset_user(account: str) -> sqlite3.Row:
+    value = account.strip()
+    rows = query(
+        "select * from users where is_guest = 0 and (username = ? or lower(email) = ?)",
+        (value, value.lower()),
+    )
+    if not rows or not rows[0]["email"]:
+        raise HTTPException(404, "账号不存在或未绑定邮箱")
+    return rows[0]
 
 
 def score_text(payload: RumorPayload | dict[str, Any]) -> dict[str, Any]:
@@ -5716,13 +5751,16 @@ def send_code(payload: SendCodePayload) -> dict[str, Any]:
 DAILY_REG_LIMIT = 100
 
 
+@app.post("/api/password-reset/lookup")
+def lookup_password_reset_account(payload: PasswordResetLookupPayload) -> dict[str, Any]:
+    user = password_reset_user(payload.account)
+    return {"ok": True, "masked_email": mask_email(user["email"])}
+
+
 @app.post("/api/password-reset/send-code")
 def send_password_reset_code(payload: PasswordResetSendPayload) -> dict[str, Any]:
-    email = payload.email.strip().lower()
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        raise HTTPException(422, "邮箱格式不正确")
-    if not query("select 1 from users where lower(email) = ? and is_guest = 0", (email,)):
-        raise HTTPException(404, "该邮箱未注册")
+    user = password_reset_user(payload.account)
+    email = user["email"].strip().lower()
     code = f"{random.randint(0, 999999):06d}"
     expires = int(time.time()) + EMAIL_CODE_TTL
     execute(
@@ -5735,28 +5773,25 @@ def send_password_reset_code(payload: PasswordResetSendPayload) -> dict[str, Any
         "股情报 密码重置验证码",
         f"您的密码重置验证码是：{code}\n5 分钟内有效。如非本人操作，请忽略本邮件。",
     )
-    return {"ok": True, "delivery": delivery}
+    return {"ok": True, "delivery": delivery, "masked_email": mask_email(email)}
 
 
 @app.post("/api/password-reset")
 def reset_password(payload: PasswordResetPayload) -> dict[str, Any]:
-    email = payload.email.strip().lower()
+    user = password_reset_user(payload.account)
+    email = user["email"].strip().lower()
     rows = query(
         "select * from password_reset_verifications where email = ? and expires_at > ?",
         (email, int(time.time())),
     )
     if not rows or rows[0]["code"] != payload.code:
         raise HTTPException(400, "验证码错误或已过期")
-    users = query("select * from users where lower(email) = ? and is_guest = 0", (email,))
-    if not users:
-        execute("delete from password_reset_verifications where email = ?", (email,))
-        raise HTTPException(404, "该邮箱未注册")
     salt, digest = hash_password(payload.password)
     execute(
         "update users set password_salt = ?, password_hash = ? where id = ?",
-        (salt, digest, users[0]["id"]),
+        (salt, digest, user["id"]),
     )
-    execute("delete from sessions where user_id = ?", (users[0]["id"],))
+    execute("delete from sessions where user_id = ?", (user["id"],))
     execute("delete from password_reset_verifications where email = ?", (email,))
     return {"ok": True}
 

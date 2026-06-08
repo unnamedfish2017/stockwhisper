@@ -172,6 +172,7 @@ def test_forgot_password_form_is_hidden_and_wired():
 
     assert 'placeholder="用户名 / 注册邮箱"' in html
     assert 'id="forgotForm" style="display:none"' in html
+    assert 'id="resetMaskedEmail"' in html
     assert 'id="forgotBtn"' in html
     assert 'id="sendResetCodeBtn"' in html
     assert 'id="doResetBtn"' in html
@@ -182,7 +183,8 @@ def test_forgot_password_form_is_hidden_and_wired():
     assert '("#sendResetCodeBtn").addEventListener("click", sendResetCode)' in js
     assert '("#doResetBtn").addEventListener("click", doResetPassword)' in js
     assert "function startForgotPassword()" in js
-    assert "请先在登录框填写注册邮箱" in js
+    assert "请先填写用户名或注册邮箱" in js
+    assert '"/api/password-reset/lookup"' in js
     assert '"/api/password-reset/send-code"' in js
     assert '"/api/password-reset"' in js
 
