@@ -2113,6 +2113,7 @@ async function sendCode() {
     $("#authMsg").textContent = data.delivery === "log"
       ? "SMTP 未配置，验证码已写入服务日志，5分钟内有效"
       : `验证码已发至 ${email}，5分钟内有效`;
+    btn.textContent = "已发送";
     setTimeout(() => { btn.disabled = false; btn.textContent = "重新发送"; }, 60000);
   } catch (err) {
     $("#authMsg").textContent = err.message;
@@ -2132,6 +2133,7 @@ async function sendResetCode() {
     $("#authMsg").textContent = data.delivery === "log"
       ? "SMTP 未配置，验证码已写入服务日志，5分钟内有效"
       : "验证码已发送，5分钟内有效";
+    btn.textContent = "已发送";
     setTimeout(() => { btn.disabled = false; btn.textContent = "重新发送"; }, 60000);
   } catch (err) {
     $("#authMsg").textContent = err.message;

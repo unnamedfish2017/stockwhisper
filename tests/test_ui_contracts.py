@@ -218,6 +218,13 @@ def test_api_errors_and_register_success_are_user_readable():
     assert 'refreshIdentitySurfaces().catch((err) => console.warn("身份信息刷新失败", err));' in js
 
 
+def test_verification_code_buttons_show_sent_state():
+    js = app_js()
+
+    assert re.search(r"async function sendCode[\s\S]+btn\.textContent = \"已发送\";[\s\S]+btn\.textContent = \"重新发送\";", js)
+    assert re.search(r"async function sendResetCode[\s\S]+btn\.textContent = \"已发送\";[\s\S]+btn\.textContent = \"重新发送\";", js)
+
+
 def test_search_api_is_not_limited_to_active_day(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         old_id = seed_rumor(target="远期搜索股份", code="600123.sh", date="2026-05-20")
